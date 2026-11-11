@@ -2,9 +2,9 @@
 
 Run: 2026-11-11 10:56 UTC · Groq / `openai/gpt-oss-120b` · build `local`
 
-**16/16 chats fully correct · 18/18 line items carry a quote from the chat · median 1.9 s per draft.**
+**16/16 chats passed their selected checks · 18/18 line items carry a quote from the chat · median 1.9 s per draft.**
 
-16 synthetic client chats (English, Russian, Spanish, Kazakh). A chat counts as correct only if every check passes: total, currency, number of items, client email (or none when it is absent), due date, and a warning where one is required.
+16 synthetic client chats (English, Russian, Spanish, Kazakh). Each case checks a selected subset of total, currency, item count, email, due date and warnings; not every field is checked in every case.
 These are hand-written examples, not real customer data, so they show behaviour on known edge cases, not general accuracy.
 
 | Case | Language | Result | Time |

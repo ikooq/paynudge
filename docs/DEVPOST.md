@@ -6,7 +6,7 @@ Copy each block into the matching Devpost field.
 PayNudge
 
 ## Tagline (short description)
-Turn a client chat, screenshot or voice note into a PayPal invoice with the client's own words behind every line, and offer late clients a payment plan PayPal collects in parts.
+Turn a client chat, screenshot or voice note into a PayPal invoice with source excerpts when found, and offer late clients a payment plan payable in parts.
 
 ## Links
 - Live demo: https://paynudge-sz4i.onrender.com
@@ -19,7 +19,7 @@ Turn a client chat, screenshot or voice note into a PayPal invoice with the clie
 Freelancers close deals in Telegram, WhatsApp and email, often in two or three languages. Getting paid then means retyping the scope into an invoice, remembering who has not paid, and writing awkward "just checking in" messages. When a client is late, the usual tools only add pressure: another reminder, then a sterner one. We wanted the path from "Deal!" in a chat to money in PayPal to take seconds, and a late client to get an easier way to pay instead of a louder reminder.
 
 ## What it does
-**1. Chat, screenshot or voice note → PayPal invoice.** Paste a conversation, drop a screenshot or record a voice note, in any language. The AI finds the client, line items, quantities, prices, currency, email and due date, and writes the invoice in English. Under every line it shows the exact words from the chat that justify it; a quote is shown only if it really appears in the source. Doubtful points are flagged (no email, "about 20 photos", a price that was only proposed).
+**1. Chat, screenshot or voice note → PayPal invoice.** The AI drafts line items, contact details and terms from the source. When it finds a matching excerpt, it shows it beneath the item; missing excerpts are flagged for review. A text match does not prove the client agreed to the work or price.
 
 **2. Human review, then PayPal.** Every field is editable and validated (exact totals, real dates, valid email). One click creates and sends the invoice through the PayPal Invoicing API; the client gets PayPal's email with a Pay button, or a share link if there is no email.
 
@@ -37,7 +37,7 @@ Nothing is sent without the seller's approval.
 - **Server:** Node.js and Express; PayPal is the source of truth (no database): the deal summary, client language and payment plan live in the invoice's private memo.
 - **Front end:** vanilla JavaScript, AG Grid Community, Tesseract.js for an on-device OCR fallback.
 - **Hosting:** Render (Blueprint from `render.yaml`), with a GitHub Action keeping the free instance awake.
-- **Quality:** 13 automated tests (totals, dates, retries without duplicate invoices, reminder safety, plan math, webhook rejection) and an evaluation script over 16 synthetic chats.
+- **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state and webhook handling; an evaluation script runs selected checks over 16 synthetic chats.
 
 ## AI tools used and how
 | Tool | Used for |
@@ -55,7 +55,7 @@ Nothing is sent without the seller's approval.
 - **Honest money.** Invoice math must be exact: plan installments must add up to the cent, currencies are never summed together, and a manually recorded payment is labelled differently from a PayPal payment.
 
 ## Accomplishments that we're proud of
-- On 16 synthetic chats in English, Russian, Spanish and Kazakh (cancelled items, an unapproved quote, a changed price, "$1.5k", hourly rates, a deposit, a discount, yen, a missing email), the live model produced fully correct drafts for **16 of 16**, and **18 of 18** line items carried a quote that really appears in the chat, about 2 seconds per draft.
+- In one run of 16 synthetic chats in English, Russian, Spanish and Kazakh, all 16 passed their selected checks and 18 of 18 extracted items carried a matching quote. Median time was 1.9 seconds. Each case checks only a subset of fields; the result does not establish general accuracy.
 - Real sandbox payments: invoices #0008 and #0009 were paid by a sandbox buyer and shown as paid via PayPal.
 - A real PayPal invoice switched to installments by a payment plan (`allow_partial_payment: true`, minimum $135, schedule 180 + 135 + 135 = 450 USD, message in Russian).
 - English and Russian voice notes turned into correct invoices ($950 and $350).

@@ -17,12 +17,12 @@ Use only PayPal sandbox accounts and fictional conversations. The deployed demo 
 
 ## Suggested sequence (2:50 at most)
 
-- **0:00–0:15 — Problem and promise.** "Freelancers agree on work in chats, in any language. PayNudge turns that chat into a PayPal invoice, shows the client's own words behind every line, and when a client is late, offers a payment plan PayPal collects in parts."
+- **0:00–0:15 — Problem and promise.** "Freelancers agree on work in chats. PayNudge drafts a PayPal invoice and shows matching source excerpts when found. For late payments, the seller can offer a payment plan."
 - **0:15–0:45 — Voice note → draft.** Click **Voice note**, say the clip, stop. The transcript appears in the chat box and the draft follows. Point at the quote under each line item and the totals. Mention: the AI never sends anything; you review every field.
 - **0:45–1:05 — Any language.** Click the **Russian chat** sample, draft it. Show the English invoice with Russian quotes as evidence.
 - **1:05–1:45 — PayPal for real.** Paste the $1 chat, draft, **Create & send via PayPal**, open the client's payment page, pay as the sandbox buyer (hide the password). Back in PayNudge: "just paid", the row turns green, Collected rises. If it does not update within 20 seconds, stop and investigate; do not claim it worked.
-- **1:45–2:25 — Payment plan.** In **Invoices**, click **Overdue**, then **Plan** on Northwind Labs. The AI proposes installments that add up exactly to the balance and writes the message in the client's language. Change one amount to show the live check turn red, fix it, approve. Explain: PayPal now accepts partial payments on the same invoice, and the schedule lives in the invoice in PayPal. Show the row change to "Plan 1/3".
-- **2:25–2:50 — Table and honesty.** Show the quick views, the paid-progress bar with plan ticks, the per-currency totals and **Export CSV**. Close with the measured result (16 of 16 test chats correct, quotes on 18 of 18 items) and one limit stated plainly: one shared sandbox seller, no login, a hackathon prototype.
+- **1:45–2:25 — Payment plan.** In **Invoices**, click **Overdue**, then **Plan** on Northwind Labs. Review the generated introduction and the exact appended schedule. Explain that the plan is only an offer: the original overdue state remains until the seller confirms the client agreed. Do not claim that a buyer accepted or made partial payments unless that is actually demonstrated.
+- **2:25–2:50 — Table and honesty.** Show the quick views, the paid-progress bar, per-currency totals and **Export CSV**. Explain that one run of 16 synthetic chats passed selected checks; it is not a general accuracy measurement. Note the shared sandbox seller and lack of login.
 
 Record in one take where possible, or mark cuts and pre-seeded data clearly. No background music unless you hold the rights. Upload publicly to YouTube and submit the URL on Devpost; keep it under three minutes.
 

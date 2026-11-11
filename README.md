@@ -81,9 +81,9 @@ PayNudge runs on **Groq's free plan** with open models:
 
 The sample chats include English, Russian and Spanish. The model can resolve a relative payment date when its reference date is clear; dates and amounts always need human review.
 
-**Measured check:** on 16 hand-written client chats in English, Russian, Spanish and Kazakh (cancelled items, an unapproved quote, a price changed later, "$1.5k", hourly rates, a deposit already paid, a discount, yen, an email in a signature, missing email, explicit and unknown due dates), the live model got **16/16 chats fully correct** (total, currency, items, email, due date, required warnings), **18/18 line items carried a quote that really appears in the chat**, median **1.9 s** per draft (latest run). Full table: [docs/AI-EVAL.md](docs/AI-EVAL.md). Reproduce with `npm run evaluate-ai` while the app runs with AI credentials (consumes AI quota).
+**Measured check:** one recorded run passed the selected checks for **16/16 hand-written chats**, with **18/18 extracted items carrying a matching quote** and a median of **1.9 s** per draft. The selected checks differ by case and do not validate every field or establish general accuracy. Full table: [docs/AI-EVAL.md](docs/AI-EVAL.md). Reproduce with `npm run evaluate-ai` while the app runs with AI credentials (consumes AI quota).
 
-These are synthetic examples written by us, not real customer data: they show behaviour on known edge cases, not general accuracy. A person must still verify every draft, which is why every line item shows its source quote.
+These are synthetic examples written by us, not real customer data. A person must still verify every draft; a matching source excerpt is shown when one is found, but it does not prove agreement.
 
 | Feature | Input | Output |
 |---|---|---|

@@ -22,9 +22,7 @@ export function detectPayments(rows) {
       if (!before) continue;
       const nowPaid = PAID.has(r.status) && !PAID.has(before.status);
       const partial = r.paid > before.paid && !nowPaid;
-      // A verified PayPal webhook may already have announced this payment.
-      const announced = events.some((e) => e.kind === "payment" && e.invoiceId === r.id && e.viaWebhook);
-      if ((nowPaid || partial) && !announced) {
+      if (nowPaid || partial) {
         const amount = r.paid - before.paid || r.amount;
         logEvent("payment", `${r.client} paid ${amount.toFixed(2)} ${r.currency} for invoice #${r.number}`, { invoiceId: r.id });
       }

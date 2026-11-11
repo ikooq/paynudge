@@ -8,6 +8,7 @@ import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO, valid
 import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
+import { describeWebhookEvent } from "./src/webhook-events.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -149,11 +150,6 @@ app.post("/api/autopilot/started", (req, res) => {
 // PayPal webhooks: PayPal calls this when an invoice is paid, cancelled or refunded.
 // Every delivery is verified with PayPal before anything is logged or pushed to the dashboard.
 let lastWebhookAt = null;
-const WEBHOOK_EVENTS = {
-  "INVOICING.INVOICE.PAID": (inv) => `PayPal confirmed payment of invoice #${inv.number} (${inv.amount}) by webhook`,
-  "INVOICING.INVOICE.CANCELLED": (inv) => `PayPal reports invoice #${inv.number} was cancelled`,
-  "INVOICING.INVOICE.REFUNDED": (inv) => `PayPal reports invoice #${inv.number} was refunded`,
-};
 app.post("/api/paypal/webhook", async (req, res) => {
   if (!config.paypal.live || !config.paypal.webhookId) return res.status(503).json({ error: "Webhooks are not configured." });
   const event = req.body || {};
@@ -166,13 +162,10 @@ app.post("/api/paypal/webhook", async (req, res) => {
   }
   if (!genuine) return res.status(400).json({ error: "Webhook signature is not valid." });
   lastWebhookAt = new Date().toISOString();
-  const describe = WEBHOOK_EVENTS[event.event_type];
-  if (describe) {
-    const invoice = event.resource?.invoice || event.resource || {};
-    const amount = invoice.amount ? `${invoice.amount.value} ${invoice.amount.currency_code}` : "amount in PayPal";
-    const info = { number: invoice.detail?.invoice_number || invoice.id || "?", amount };
-    logEvent(event.event_type === "INVOICING.INVOICE.PAID" ? "payment" : "paypal", describe(info), { invoiceId: invoice.id, viaWebhook: true });
-    broadcast({ type: event.event_type, invoiceId: invoice.id });
+  const description = describeWebhookEvent(event);
+  if (description) {
+    logEvent("paypal", description.text, { invoiceId: description.invoiceId, viaWebhook: true });
+    broadcast({ type: event.event_type, invoiceId: description.invoiceId });
   }
   res.json({ ok: true }); // acknowledge quickly, also for event types we don't use
 });

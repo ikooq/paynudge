@@ -91,7 +91,7 @@ const passed = results.filter((r) => !r.fails.length).length;
 const totalItems = results.reduce((s, r) => s + r.items, 0);
 const evidenced = results.reduce((s, r) => s + r.withEvidence, 0);
 const median = results.map((r) => r.secs).sort((a, b) => a - b)[Math.floor(results.length / 2)];
-const summary = `${passed}/${cases.length} chats fully correct · ${evidenced}/${totalItems} line items carry a quote from the chat · median ${median.toFixed(1)} s per draft`;
+const summary = `${passed}/${cases.length} chats passed their selected checks · ${evidenced}/${totalItems} line items carry a quote from the chat · median ${median.toFixed(1)} s per draft`;
 console.log(summary);
 
 const md = `# AI extraction check
@@ -100,7 +100,7 @@ Run: ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC · ${status.
 
 **${summary}.**
 
-${cases.length} synthetic client chats (English, Russian, Spanish, Kazakh). A chat counts as correct only if every check passes: total, currency, number of items, client email (or none when it is absent), due date, and a warning where one is required.
+${cases.length} synthetic client chats (English, Russian, Spanish, Kazakh). Each case checks a selected subset of total, currency, item count, email, due date and warnings; not every field is checked in every case.
 These are hand-written examples, not real customer data, so they show behaviour on known edge cases, not general accuracy.
 
 | Case | Language | Result | Time |
