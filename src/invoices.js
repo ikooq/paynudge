@@ -237,7 +237,7 @@ export function toRow(inv, today = todayISO()) {
   const plan = isOpen ? parsePlan(memo) : null;
   const progress = plan ? planProgress(plan, paid, today) : null;
   // A client keeping to an agreed plan is not overdue; a missed installment is late from its own date.
-  if (plan?.status === "accepted" && progress) daysOverdue = progress.next ? Math.max(0, daysBetween(progress.next.due_date, today)) : 0;
+  if (plan?.status === "accepted" && progress?.next) daysOverdue = Math.max(0, daysBetween(progress.next.due_date, today));
 
   return {
     id: inv.id,

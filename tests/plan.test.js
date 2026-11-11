@@ -77,3 +77,10 @@ test("legacy plans without a baseline do not invent progress or acceptance", () 
   assert.equal(p.status, "unknown");
   assert.equal(planProgress(p, 500, today), null);
 });
+
+test("a remaining balance is not hidden when all installments appear paid", () => {
+  const installments = [{ due_date: "2026-11-20", amount: 250 }, { due_date: "2026-12-01", amount: 250 }];
+  const row = toRow({ id: "INV2-X", status: "PARTIALLY_PAID", amount: { currency_code: "USD", value: "1000" }, due_amount: { value: "500" }, payments: { paid_amount: { value: "500" } }, detail: { payment_term: { due_date: "2026-10-01" }, memo: `${formatPlanLine(installments, "USD")}\nPayment plan state: accepted; paid_before: 0.00` } }, today);
+  assert.equal(row.plan.progress.next, null);
+  assert.ok(row.daysOverdue > 0);
+});
