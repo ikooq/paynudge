@@ -225,6 +225,8 @@ async function readScreenshotsLocally() {
   status.hidden = false;
   status.textContent = "Loading local OCR (English, Russian and Spanish). First use downloads language data and may take a while.";
   let worker;
+  let timeoutId;
+  let timedOut = false;
   try {
     if (!window.Tesseract) await new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -233,11 +235,20 @@ async function readScreenshotsLocally() {
       script.onerror = () => reject(new Error("Could not load OCR files."));
       document.head.append(script);
     });
-    worker = await window.Tesseract.createWorker(["eng", "rus", "spa"], 1, {
+    const loading = window.Tesseract.createWorker(["eng", "rus", "spa"], 1, {
       workerPath: "/vendor/tesseract/worker.min.js",
       corePath: "/vendor/tesseract-core",
-      langPath: "https://tessdata.projectnaptha.com/4.0.0_fast",
+      langPath: "/vendor/ocr-data",
+      logger: (progress) => {
+        if (!timedOut && progress.status) status.textContent = `Preparing OCR: ${progress.status} (${Math.round((progress.progress || 0) * 100)}%)`;
+      },
     });
+    loading.then((lateWorker) => { if (timedOut) lateWorker.terminate(); }).catch(() => {});
+    worker = await Promise.race([
+      loading,
+      new Promise((_, reject) => { timeoutId = setTimeout(() => { timedOut = true; reject(new Error("Loading took too long; refresh the page")); }, 45000); }),
+    ]);
+    clearTimeout(timeoutId);
     const parts = [];
     for (const [index, img] of images.entries()) {
       status.textContent = `Reading screenshot ${index + 1} of ${images.length} on your device…`;
@@ -257,8 +268,9 @@ async function readScreenshotsLocally() {
   } catch (err) {
     status.textContent = `Local OCR could not finish: ${err.message}. You can paste the conversation as text.`;
   } finally {
+    clearTimeout(timeoutId);
     if (worker) await worker.terminate();
-    btn.disabled = false;
+    btn.disabled = timedOut;
     $("#extractBtn").disabled = false;
   }
 }

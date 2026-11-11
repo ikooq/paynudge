@@ -22,6 +22,9 @@ app.use(express.static(path.join(here, "public")));
 app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
 app.use("/vendor/tesseract", express.static(path.join(here, "node_modules/tesseract.js/dist")));
 app.use("/vendor/tesseract-core", express.static(path.join(here, "node_modules/tesseract.js-core")));
+for (const lang of ["eng", "rus", "spa"]) {
+  app.use("/vendor/ocr-data", express.static(path.join(here, "node_modules/@tesseract.js-data", lang, "4.0.0_best_int")));
+}
 
 // --- Small per-IP rate limit for the endpoints that call the AI -------------------------------
 const hits = new Map();
