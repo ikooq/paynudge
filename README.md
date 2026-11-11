@@ -22,7 +22,7 @@ Freelancers agree on work in WhatsApp, Telegram and email threads, often in seve
 6. **Receivables copilot.** Ask "Who should I chase first?" The AI answers from your live PayPal data and proposes one-click actions.
 7. **Insights and a live agent feed.** A receivables aging chart (not due, 1–7, 8–21, 21+ days) and an activity feed of everything the AI and PayPal did: drafts, sent invoices, reminders, payments.
    The collection plan surfaces up to three oldest overdue invoices that have no recent or unconfirmed contact. Its ranking is an explicit age-based rule, not an AI prediction; each recommendation can open a reminder or be selected in AG Grid for review as a batch.
-8. **The payment moment.** After an invoice is sent, the dashboard watches PayPal. When the client pays, it announces "Bloom Coffee just paid $690", the row lights up and the KPIs update.
+8. **The payment moment.** After an invoice is sent, the dashboard checks PayPal every 4 seconds (15 seconds otherwise). When the client pays, it announces "Bloom Coffee just paid $690", the row lights up and the KPIs update.
 
 The AI never sends anything on its own. Every invoice and reminder is reviewed by a person first.
 
@@ -51,10 +51,15 @@ For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DE
 | Dashboard and copilot data | `GET /v2/invoicing/invoices` |
 | Invoice details for a reminder | `GET /v2/invoicing/invoices/{id}` |
 | Send the AI-written reminder | `POST /v2/invoicing/invoices/{id}/remind` |
-| Instant payment updates | Webhook `INVOICING.INVOICE.PAID` (also `CANCELLED`, `REFUNDED`) → `POST /api/paypal/webhook` |
+| Payment updates (polling) | `GET /v2/invoicing/invoices` every 4–15 seconds |
+| Payment updates (webhook, see note) | Webhook `INVOICING.INVOICE.PAID` (also `CANCELLED`, `REFUNDED`) → `POST /api/paypal/webhook` |
 | Prove a webhook is genuine | `POST /v1/notifications/verify-webhook-signature` |
 
-**Payment updates.** With `PAYPAL_WEBHOOK_ID` set, PayPal notifies PayNudge when an invoice is paid. The server verifies every delivery with PayPal before using it, then pushes the update to open dashboards (Server-Sent Events), so the "just paid" moment appears immediately. Without a webhook the app falls back to polling PayPal every 4–15 seconds; the header chip shows which mode is active.
+**Payment updates: what is proven and what is not.** The dashboard reliably notices payments by polling PayPal every 4–15 seconds; this is what showed sandbox invoices #0008 and #0009 as paid after a real sandbox buyer paid them.
+
+PayNudge also accepts PayPal webhooks. With `PAYPAL_WEBHOOK_ID` set, the server verifies every delivery with PayPal (`verify-webhook-signature`) before using it and pushes it to open dashboards over Server-Sent Events. On the live demo a forged "invoice paid" request was rejected with `400 Webhook signature is not valid` and never reached the activity feed.
+
+However, we have **not yet seen a real webhook arrive**. In our test (Nov 11, 2026) the webhook was registered for the right URL and events, the sandbox buyer paid invoice #0009, and PayPal's own event list for the app (`GET /v1/notifications/webhooks-events`) stayed empty: the sandbox did not generate an `INVOICING.INVOICE.PAID` event, so there was nothing to deliver. Until a real event is received, treat webhooks as implemented but unverified end to end; polling is the path that is known to work.
 
 To enable it: PayPal Developer Dashboard → Apps & Credentials → your sandbox app → **Add Webhook**, URL `https://<your-app>/api/paypal/webhook`, events `Invoicing invoice paid`, `cancelled`, `refunded`. Copy the webhook ID into `PAYPAL_WEBHOOK_ID`.
 
@@ -157,6 +162,7 @@ The repo includes `render.yaml`. In Render: New → Blueprint → select this re
 
 This is a hackathon prototype, and we prefer to say so plainly:
 
+- **Webhooks not verified end to end.** The receiver and its signature check work (a forged request is rejected), but the sandbox did not emit an `INVOICING.INVOICE.PAID` event in our test, so payments are currently noticed by polling within 4–15 seconds.
 - **One seller, no login.** The demo runs on one PayPal sandbox account shared by every visitor. Connecting each user's own PayPal account would need PayPal's partner onboarding and a user database.
 - **Reminder history is not durable on the free host.** It lives in a local file that Render's free plan can wipe on redeploy. Production needs a database.
 - **Screenshot reading depends on a free vision quota.** When Groq's vision model is out of quota, the in-browser OCR fallback works but makes character mistakes, so the text must be reviewed.
@@ -165,7 +171,7 @@ This is a hackathon prototype, and we prefer to say so plainly:
 
 ## Tools used
 
-- **PayPal Developer Platform:** Invoicing API v2 and Webhooks (with signature verification) in the sandbox environment
+- **PayPal Developer Platform:** Invoicing API v2 in the sandbox environment; webhook receiver with signature verification (implemented, not yet seen receiving a real sandbox event)
 - **Groq API** (free plan): GPT-OSS 120B extracts invoices, writes reminders and answers copilot questions with strict structured output. Qwen 3.8 27B transcribes chat screenshots. GPT-OSS 20B is the fallback.
 - **Google Gemini API** (optional, `@google/genai` SDK): alternative provider
 - **AG Grid Community:** receivables table with sorting, search and pagination

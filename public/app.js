@@ -130,7 +130,7 @@ async function loadStatus() {
       ? `<span class="chip" title="${esc(aiTitle(s.ai))}"><i></i>${esc(aiLabel(s.ai))}</span>`
       : `<span class="chip demo" title="Set GROQ_API_KEY to use the AI"><i></i>AI · demo mode</span>`,
     s.paypal.webhooks
-      ? `<span class="chip hide-sm" title="PayPal notifies this app through verified webhooks when an invoice is paid"><i></i>Payments: instant</span>`
+      ? `<span class="chip hide-sm" title="Payments are noticed by checking PayPal every few seconds. A verified PayPal webhook, when PayPal sends one, updates the page at once."><i></i>Payments: webhooks + polling</span>`
       : `<span class="chip hide-sm demo" title="No PayPal webhook configured; the dashboard checks PayPal every few seconds"><i></i>Payments: polling</span>`,
     `<span class="chip hide-sm">Seller: ${esc(s.business)}</span>`,
   ];
@@ -1257,7 +1257,7 @@ $("#heroTry").addEventListener("click", () => {
 await loadStatus().catch((e) => toast(e.message, "error"));
 loadSamples();
 loadInvoices();
-// Verified PayPal webhooks reach the page through this stream, so a payment shows up at once.
+// Verified PayPal webhooks, when PayPal sends them, reach the page through this stream; polling stays on.
 if (state.status?.paypal?.webhooks && "EventSource" in window) {
   const stream = new EventSource("/api/events");
   stream.onmessage = () => loadInvoices();
