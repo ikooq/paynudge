@@ -132,6 +132,9 @@ async function loadStatus() {
     `<span class="chip hide-sm">Seller: ${esc(s.business)}</span>`,
   ];
   $("#statusChips").innerHTML = chips.join("");
+  $("#dataNotice").textContent = s.ai.live
+    ? `Chats and screenshots are sent to ${s.ai.provider} for processing. Use test data in this shared demo.`
+    : "Demo mode uses local sample responses; no chat is sent to an AI provider.";
 }
 
 async function loadSamples() {
