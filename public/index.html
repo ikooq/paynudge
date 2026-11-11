@@ -137,9 +137,10 @@
         <article class="card aging">
           <div class="mini-head">
             <h3>Receivables aging</h3>
-            <span class="muted">Open invoices by days past due</span>
+            <span class="muted">Choose an aging group to filter the table</span>
           </div>
-          <div id="agingChart" class="aging-chart" role="img" aria-label="Open invoices grouped by how many days they are past due"></div>
+          <div id="agingChart" class="aging-chart" aria-label="Filter invoices by days past due"></div>
+          <button type="button" class="btn ghost small" id="clearAging" hidden>Show all invoices</button>
         </article>
         <article class="card activity">
           <div class="mini-head">
@@ -161,6 +162,7 @@
       </article>
 
       <article class="card grid-card">
+        <p class="muted" id="gridGuidance" style="padding: 12px 16px; margin: 0">Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.</p>
         <div id="grid" class="grid"></div>
       </article>
     </section>

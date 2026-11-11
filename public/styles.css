@@ -333,7 +333,10 @@ textarea { resize: vertical; }
 .mini-head h3 { font-size: 15px; font-weight: 600; }
 .mini-head .muted { font-size: 12.5px; }
 .aging-chart { display: grid; gap: 12px; }
-.aging-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 13px; }
+#clearAging[hidden] { display: none; }
+.aging-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: center; font: inherit; font-size: 13px; width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 6px; padding: 3px; color: inherit; }
+.aging-row[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.aging-row:focus-visible { outline: 2px solid var(--accent); }
 .aging-row .label { color: var(--muted); font-weight: 600; }
 .aging-track { position: relative; height: 28px; display: flex; align-items: center; gap: 10px; }
 .aging-bar {

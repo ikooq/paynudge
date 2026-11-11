@@ -26,6 +26,7 @@ const state = {
   justPaid: new Set(),
   watchUntil: 0, // poll PayPal faster until this time (after an invoice is sent)
   seenActivity: null,
+  agingBucket: null,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -587,6 +588,8 @@ function setupGrid() {
     columnDefs,
     rowData: [],
     rowSelection: { mode: "multiRow", enableClickSelection: false },
+    isExternalFilterPresent: () => state.agingBucket !== null,
+    doesExternalFilterPass: (node) => node.data.due > 0 && BUCKETS[state.agingBucket].test(node.data),
     theme: gridTheme(),
     rowHeight: 60,
     headerHeight: 44,
@@ -606,6 +609,21 @@ function setupGrid() {
   );
   $("#gridSearch").addEventListener("input", (e) => state.grid.setGridOption("quickFilterText", e.target.value));
   $("#refreshBtn").addEventListener("click", () => loadInvoices({ announce: true }));
+  $("#agingChart").addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-bucket]");
+    if (!button) return;
+    state.agingBucket = Number(button.dataset.bucket);
+    state.grid.deselectAll();
+    state.grid.onFilterChanged();
+    renderAging(state.rows);
+    $("#gridGuidance").textContent = `Showing ${BUCKETS[state.agingBucket].label} open invoices. Select rows to prepare reminders.`;
+  });
+  $("#clearAging").addEventListener("click", () => {
+    state.agingBucket = null;
+    state.grid.onFilterChanged();
+    renderAging(state.rows);
+    $("#gridGuidance").textContent = "Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.";
+  });
 }
 
 function renderKpis(k) {
@@ -669,6 +687,7 @@ const BUCKETS = [
 ];
 
 function renderAging(rows) {
+  $("#clearAging").hidden = state.agingBucket === null;
   const open = rows.filter((r) => r.due > 0);
   const data = BUCKETS.map((b) => {
     const list = open.filter(b.test);
@@ -682,13 +701,13 @@ function renderAging(rows) {
         .map((d, i) => {
           const money = Object.entries(d.totals).map(([c, v]) => fmt(v, c)).join(" + ") || "—";
           const tip = d.count ? `${d.label}: ${d.count} invoice${d.count === 1 ? "" : "s"} (${d.clients.join(", ")}), ${money}` : `${d.label}: none`;
-          return `<div class="aging-row" data-bucket="${i}" title="${esc(tip)}">
+          return `<button type="button" class="aging-row" data-bucket="${i}" aria-pressed="${state.agingBucket === i}" aria-label="${esc(tip)}" title="${esc(tip)}">
             <span class="label">${d.label}</span>
             <div class="aging-track">
               <div class="aging-bar" style="width:${d.count ? Math.max(6, (d.count / max) * 62) : 0.6}%"></div>
               <span class="aging-value">${d.count ? esc(money) : "—"}<small>${d.count ? `${d.count} inv.` : ""}</small></span>
             </div>
-          </div>`;
+          </button>`;
         })
         .join("")
     : '<p class="muted">No open invoices. Everything is collected.</p>';
@@ -796,7 +815,7 @@ async function openAutopilot() {
   try {
     const selectedIds = new Set(state.grid?.getSelectedRows().map((row) => row.id) || []);
     await loadInvoices();
-    const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0 && (!selectedIds.size || selectedIds.has(r.id))).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
+    const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0 && (selectedIds.size ? selectedIds.has(r.id) : state.agingBucket === null || BUCKETS[state.agingBucket].test(r))).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
     ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: !(row.lastSent && Date.now() - Date.parse(row.lastSent) < 2 * 864e5), status: "writing", subject: "", note: "" }));
     $("#apSummary").textContent = overdue.length
       ? `Review up to ${overdue.length} overdue invoice${overdue.length > 1 ? "s" : ""}. Recent PayPal contact is unchecked by default; check the history before approving.`
