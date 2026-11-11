@@ -286,16 +286,18 @@ app.post("/api/invoices/:id/plan", writeLimit, async (req, res) => {
 
     // Keep the memo within PayPal's 500 characters: replace any old plan line, shorten the summary if needed.
     const planLine = formatPlanLine(installments, row.currency);
-    const lines = String(invoice.detail?.memo || "").split("\n").filter((l) => l.trim() && !/^Payment plan:/.test(l));
-    while (lines.length && [...lines, planLine].join("\n").length > 500) {
-      const over = [...lines, planLine].join("\n").length - 500;
+    const stateLine = `Payment plan state: offered; paid_before: ${money(row.paid, row.currency)}`;
+    const lines = String(invoice.detail?.memo || "").split("\n").filter((l) => l.trim() && !/^Payment plan(?::| state:)/.test(l));
+    // Leave space for "accepted" (one character longer than "offered").
+    while (lines.length && [...lines, planLine, stateLine].join("\n").length > 499) {
+      const over = [...lines, planLine, stateLine].join("\n").length - 499;
       lines[0] = lines[0].length > over + 20 ? lines[0].slice(0, lines[0].length - over - 1) + "…" : "";
       if (!lines[0]) lines.shift();
     }
     const smallest = Math.min(...installments.map((i) => i.amount));
     await paypal.updateInvoice({
       ...invoice,
-      detail: { ...invoice.detail, memo: [...lines, planLine].join("\n") },
+      detail: { ...invoice.detail, memo: [...lines, planLine, stateLine].join("\n") },
       configuration: {
         ...invoice.configuration,
         // The minimum is the smallest installment, so every part of the plan can be paid with the same link.
@@ -315,6 +317,27 @@ app.post("/api/invoices/:id/plan", writeLimit, async (req, res) => {
     reminderLocks.delete(id);
   }
   res.json({ ok: true, row: toRow(await paypal.getInvoice(id)) });
+});
+
+// The seller records an agreement obtained from the client; sending an offer is not acceptance.
+app.post("/api/invoices/:id/plan/accept", writeLimit, async (req, res) => {
+  if (req.body?.clientAgreed !== true) return res.status(400).json({ error: "Confirm the client has agreed before marking this plan accepted." });
+  const id = req.params.id;
+  if (reminderLocks.has(id)) return res.status(409).json({ error: "This invoice is being updated. Try again." });
+  reminderLocks.add(id);
+  try {
+    const invoice = await paypal.getInvoice(id);
+    const row = toRow(invoice);
+    if (row.due <= 0 || !row.plan) return res.status(409).json({ error: "There is no open payment plan to accept." });
+    if (row.plan.paidBefore == null) return res.status(409).json({ error: "This older plan has no payment baseline. Create a new offer before confirming acceptance." });
+    if (row.plan.status !== "accepted") {
+      const memo = String(invoice.detail?.memo || "").replace(/^Payment plan state: offered; paid_before: (\d+(?:\.\d{1,2})?)$/m, "Payment plan state: accepted; paid_before: $1");
+      if (memo === invoice.detail?.memo) return res.status(409).json({ error: "The plan status could not be confirmed. Refresh and try again." });
+      await paypal.updateInvoice({ ...invoice, detail: { ...invoice.detail, memo } });
+      logEvent("agent", `Seller recorded client agreement for invoice #${row.number}'s payment plan`, { invoiceId: id });
+    }
+    res.json({ ok: true, row: toRow(await paypal.getInvoice(id)) });
+  } finally { reminderLocks.delete(id); }
 });
 
 // 6) Copilot: questions about receivables, answered from live PayPal data

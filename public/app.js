@@ -719,7 +719,8 @@ function cell(html) {
 // Pinned bottom rows carry per-currency totals; cell renderers skip them.
 const isTotal = (p) => Boolean(p.node?.rowPinned);
 const statusLabel = (r) =>
-  r.daysOverdue > 0 ? ["bad", r.plan ? "Plan late" : "Overdue"]
+  r.plan && r.plan.status !== "accepted" ? [r.daysOverdue > 0 ? "bad" : "warn", r.daysOverdue > 0 ? "Overdue · offer" : r.plan.status === "offered" ? "Plan offered" : "Plan unverified"]
+  : r.daysOverdue > 0 ? ["bad", r.plan ? "Plan late" : "Overdue"]
   : r.plan && r.due > 0 ? ["info", "On plan"]
   : STATUS[r.status] || ["neutral", r.status];
 const isoDateFilter = {
@@ -794,12 +795,12 @@ const columnDefs = [
       if (isTotal(p)) return "";
       const r = p.data;
       // On a payment plan, the date that matters is the next installment, not the original due date.
-      const date = r.plan?.progress?.next?.due_date || r.dueDate;
+      const date = (r.plan?.status === "accepted" ? r.plan?.progress?.next?.due_date : "") || r.dueDate;
       let sub = "";
       if (r.daysOverdue > 0) sub = `<small class="bad">${r.daysOverdue} day${r.daysOverdue === 1 ? "" : "s"} late</small>`;
       else if (r.due > 0 && date) {
         const days = Math.round((Date.parse(date) - Date.parse(new Date().toISOString().slice(0, 10))) / 864e5);
-        sub = `<small class="muted">${r.plan ? "next part " : ""}${days === 0 ? "due today" : `in ${days} day${days === 1 ? "" : "s"}`}</small>`;
+        sub = `<small class="muted">${r.plan?.status === "accepted" ? "next part " : ""}${days === 0 ? "due today" : `in ${days} day${days === 1 ? "" : "s"}`}</small>`;
       }
       return cell(`<div class="cell-due"><span>${esc(fmtDate(date)) || "—"}</span>${sub}</div>`);
     },
@@ -818,8 +819,9 @@ const columnDefs = [
         ? `<a class="open-link" href="${esc(new URL(r.payerUrl, location.origin).href)}" target="_blank" rel="noopener" title="Open payment page">${icon.external}</a>`
         : "";
       // A late invoice without a plan can get one; an invoice on a plan shows where it stands.
-      const canPlan = r.due > 0 && r.daysOverdue > 0 && !r.plan && ["SENT", "UNPAID", "PARTIALLY_PAID"].includes(r.status);
+      const canPlan = r.due > 0 && r.daysOverdue > 0 && (!r.plan || r.plan.status === "unknown") && ["SENT", "UNPAID", "PARTIALLY_PAID"].includes(r.status);
       const planBtn = canPlan ? `<button class="nudge-btn plan" data-plan title="AI proposes installments; PayPal accepts partial payments">${icon.calendar} Plan</button>` : "";
+      const acceptBtn = r.plan?.status === "offered" && r.plan.paidBefore != null ? '<button class="nudge-btn plan" data-accept-plan title="Record that the client explicitly agreed">Confirm agreement</button>' : "";
       let main = "";
       if (["friendly", "firm", "final"].includes(key)) {
         main = `<button class="nudge-btn ${key}" data-tone="${key}">${icon.bell} ${esc(r.nextAction.label)}</button>`;
@@ -832,9 +834,17 @@ const columnDefs = [
       } else {
         main = `<span class="muted">${esc(r.nextAction.label)}</span>`;
       }
-      const el = cell(`<div class="cell-actions">${main}${planBtn}${open}</div>`);
+      const el = cell(`<div class="cell-actions">${main}${planBtn}${acceptBtn}${open}</div>`);
       el.querySelector("[data-tone]")?.addEventListener("click", () => openNudge(r, el.querySelector("[data-tone]").dataset.tone));
       el.querySelector("[data-plan]")?.addEventListener("click", () => openPlan(r));
+      el.querySelector("[data-accept-plan]")?.addEventListener("click", async () => {
+        if (!confirm(`Has ${r.client} explicitly agreed to this payment plan? Only confirm after the client accepts.`)) return;
+        try {
+          await api(`/api/invoices/${encodeURIComponent(r.id)}/plan/accept`, { method: "POST", body: { clientAgreed: true } });
+          toast("Client agreement recorded.");
+          await loadInvoices();
+        } catch (err) { toast(err.message, "error"); }
+      });
       return el;
     },
   },

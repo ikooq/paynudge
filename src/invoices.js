@@ -150,16 +150,19 @@ export function parsePlan(memo) {
     const [due_date, amount] = part.trim().split(/\s+/);
     return { due_date, amount: Number(amount) };
   }).filter((i) => /^\d{4}-\d{2}-\d{2}$/.test(i.due_date) && Number.isFinite(i.amount));
-  return installments.length ? { installments, currency: m[2] } : null;
+  const state = /^Payment plan state: (offered|accepted); paid_before: (\d+(?:\.\d{1,2})?)$/m.exec(memo || "");
+  return installments.length ? { installments, currency: m[2], status: state?.[1] || "unknown", paidBefore: state ? Number(state[2]) : null } : null;
 }
 
 // Where the client is in the plan: the next unpaid installment, given how much PayPal says is paid.
 export function planProgress(plan, paid, today = todayISO()) {
+  if (plan.paidBefore == null || !Number.isFinite(plan.paidBefore)) return null;
+  const paidTowardPlan = Math.max(0, paid - plan.paidBefore);
   let cumulative = 0;
   for (const [i, inst] of plan.installments.entries()) {
     cumulative = round2(cumulative + inst.amount);
-    if (paid + 0.005 < cumulative) {
-      return { index: i, count: plan.installments.length, next: inst, behind: inst.due_date < today, remainingInNext: round2(cumulative - paid) };
+    if (paidTowardPlan + 0.005 < cumulative) {
+      return { index: i, count: plan.installments.length, next: inst, behind: inst.due_date < today, remainingInNext: round2(cumulative - paidTowardPlan) };
     }
   }
   return { index: plan.installments.length, count: plan.installments.length, next: null, behind: false, remainingInNext: 0 };
@@ -172,7 +175,7 @@ export function validatePlan(installments, due, currency, today = todayISO()) {
   const list = (installments || []).map((i) => ({ due_date: String(i.due_date || ""), amount: Number(i.amount) }));
   if (list.length < 2 || list.length > 4) bad("A payment plan needs 2 to 4 installments.");
   for (const i of list) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(i.due_date) || Number.isNaN(Date.parse(`${i.due_date}T00:00:00Z`))) bad("Every installment needs a valid date.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(i.due_date) || Number.isNaN(Date.parse(`${i.due_date}T00:00:00Z`)) || new Date(`${i.due_date}T00:00:00Z`).toISOString().slice(0, 10) !== i.due_date) bad("Every installment needs a valid date.");
     if (!Number.isFinite(i.amount) || i.amount <= 0) bad("Every installment needs a positive amount.");
   }
   if (list[0].due_date < today) bad("The first installment cannot be in the past.");
@@ -211,7 +214,7 @@ export function toRow(inv, today = todayISO()) {
   const billing = inv.primary_recipients?.[0]?.billing_info || {};
   const currency = inv.amount?.currency_code || inv.detail?.currency_code || "USD";
   const amount = Number(inv.amount?.value || 0);
-  const paid = Number(inv.payments?.paid_amount?.value || 0);
+  const paid = Number(inv.payments?.paid_amount?.value ?? (inv.due_amount?.value != null ? Math.max(0, amount - Number(inv.due_amount.value)) : 0));
   const status = inv.status || "DRAFT";
   const isOpen = OPEN_STATUSES.has(status);
   const due = isOpen ? Number(inv.due_amount?.value ?? amount - paid) : 0;
@@ -223,7 +226,7 @@ export function toRow(inv, today = todayISO()) {
   const plan = isOpen ? parsePlan(memo) : null;
   const progress = plan ? planProgress(plan, paid, today) : null;
   // A client keeping to an agreed plan is not overdue; a missed installment is late from its own date.
-  if (progress) daysOverdue = progress.next ? Math.max(0, daysBetween(progress.next.due_date, today)) : 0;
+  if (plan?.status === "accepted" && progress) daysOverdue = progress.next ? Math.max(0, daysBetween(progress.next.due_date, today)) : 0;
 
   return {
     id: inv.id,
@@ -249,7 +252,7 @@ export function toRow(inv, today = todayISO()) {
     plan: plan ? { ...plan, progress } : null,
     // PayPal's invoice list omits `configuration`; only the single-invoice call returns it. null = unknown.
     partialAllowed: inv.configuration ? Boolean(inv.configuration.partial_payment?.allow_partial_payment) : null,
-    nextAction: nextAction(status, daysOverdue, daysUntilDue, progress),
+    nextAction: nextAction(status, daysOverdue, daysUntilDue, plan?.status === "accepted" ? progress : null),
   };
 }
 
