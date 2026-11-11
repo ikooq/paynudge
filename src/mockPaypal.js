@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { todayISO } from "./invoices.js";
 
 const invoices = new Map();
+const creationRequests = new Map();
 let counter = 41;
 
 function shiftDays(days) {
@@ -26,8 +27,10 @@ function store(inv) {
   return structuredClone(inv);
 }
 
-export async function createDraftInvoice(body) {
+export async function createDraftInvoice(body, { requestId } = {}) {
+  if (requestId && creationRequests.has(requestId)) return getInvoice(creationRequests.get(requestId));
   const id = newId();
+  if (requestId) creationRequests.set(requestId, id);
   const currency = body.detail.currency_code;
   const amount = totals(body.items, currency);
   return store({

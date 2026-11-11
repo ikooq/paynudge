@@ -55,11 +55,11 @@ async function request(path, { method = "GET", body, headers = {} } = {}) {
   return json;
 }
 
-export async function createDraftInvoice(invoice) {
+export async function createDraftInvoice(invoice, { requestId = randomUUID() } = {}) {
   const created = await request("/v2/invoicing/invoices", {
     method: "POST",
     body: invoice,
-    headers: { Prefer: "return=representation", "PayPal-Request-Id": randomUUID() },
+    headers: { Prefer: "return=representation", "PayPal-Request-Id": requestId },
   });
   // Some accounts ignore the Prefer header and return only a link to the new invoice.
   if (created?.id) return created;
@@ -67,11 +67,11 @@ export async function createDraftInvoice(invoice) {
   throw new Error("PayPal did not return the created invoice");
 }
 
-export async function sendInvoice(id, { subject, note, sendToRecipient = true } = {}) {
+export async function sendInvoice(id, { subject, note, sendToRecipient = true, requestId = randomUUID() } = {}) {
   const link = await request(`/v2/invoicing/invoices/${encodeURIComponent(id)}/send`, {
     method: "POST",
     body: { subject, note, send_to_recipient: sendToRecipient, send_to_invoicer: false },
-    headers: { "PayPal-Request-Id": randomUUID() },
+    headers: { "PayPal-Request-Id": requestId },
   });
   return link?.href || null; // payer view URL
 }

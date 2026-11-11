@@ -27,6 +27,7 @@ const state = {
   watchUntil: 0, // poll PayPal faster until this time (after an invoice is sent)
   seenActivity: null,
   agingBucket: null,
+  pendingInvoice: null,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -246,6 +247,7 @@ function renderThinking() {
 }
 
 async function extract() {
+  if (state.pendingInvoice) return toast("Resolve the pending invoice before creating another draft.", "error");
   const text = $("#chatInput").value;
   if (!text.trim() && !state.images.length) {
     toast("Paste a conversation or add a screenshot first.", "error");
@@ -327,6 +329,11 @@ function renderDraft() {
 }
 
 function updateSendHint() {
+  if (state.pendingInvoice) {
+    $("#sendHint").textContent = "An earlier attempt is unresolved. Retry the same invoice, or verify it in PayPal before starting over.";
+    $("#sendBtn").textContent = "Retry this invoice";
+    return;
+  }
   const email = state.draft.client.email.trim();
   $("#sendHint").innerHTML = email
     ? `PayPal will email the invoice to <b>${esc(email)}</b>.`
@@ -366,6 +373,11 @@ function setupDraftEvents() {
       $$(".item-row input[data-item='name']").at(-1)?.focus();
     } else if (e.target.closest("#sendBtn")) {
       sendInvoice();
+    } else if (e.target.closest("#discardPending")) {
+      if (!confirm("Check PayPal first. Starting over can create a duplicate if the previous attempt succeeded. Continue?")) return;
+      state.pendingInvoice = null;
+      sessionStorage.removeItem("paynudge.pendingInvoice");
+      renderDraft();
     } else if (e.target.closest("#newInvoice")) {
       state.draft = null;
       $("#chatInput").value = "";
@@ -381,21 +393,36 @@ function setupDraftEvents() {
 
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+function showPendingInvoice() {
+  $("#draftBody").querySelectorAll("input, textarea, button").forEach((el) => { if (!["sendBtn", "discardPending"].includes(el.id)) el.disabled = true; });
+  updateSendHint();
+  if (!$("#discardPending")) $("#sendHint").insertAdjacentHTML("afterend", '<button type="button" class="btn ghost small" id="discardPending">I checked PayPal; start over</button>');
+}
+
 async function sendInvoice() {
   const d = state.draft;
   if (!d.items.length || draftTotal() <= 0) return toast("Add at least one line item with a price.", "error");
   if (d.client.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.client.email)) return toast("That email doesn't look right.", "error");
   const btn = $("#sendBtn");
+  if (!state.pendingInvoice) {
+    state.pendingInvoice = { operationId: crypto.randomUUID(), draft: structuredClone(d) };
+    sessionStorage.setItem("paynudge.pendingInvoice", JSON.stringify(state.pendingInvoice));
+  }
+  // Keep the invoice immutable while the outcome is uncertain, including after a reload.
+  showPendingInvoice();
   btn.disabled = true;
   btn.innerHTML = `<span class="spinner"></span> Talking to PayPal…`;
   try {
-    const { row, payerUrl, emailed } = await api("/api/invoices", { method: "POST", body: { draft: d } });
+    const { row, payerUrl, emailed } = await api("/api/invoices", { method: "POST", body: state.pendingInvoice });
+    state.pendingInvoice = null;
+    sessionStorage.removeItem("paynudge.pendingInvoice");
     renderSuccess(row, payerUrl, emailed);
     await loadInvoices({ flashId: row.id });
   } catch (err) {
     toast(err.message, "error");
     btn.disabled = false;
     updateSendHint();
+    $("#sendHint").textContent = err.message;
   }
 }
 
@@ -1037,6 +1064,15 @@ setupCopilot();
 setupNudge();
 setupAutopilot();
 setupGrid();
+try {
+  const pending = JSON.parse(sessionStorage.getItem("paynudge.pendingInvoice") || "null");
+  if (pending?.operationId && pending?.draft) {
+    state.pendingInvoice = pending;
+    state.draft = structuredClone(pending.draft);
+    renderDraft();
+    showPendingInvoice();
+  }
+} catch { sessionStorage.removeItem("paynudge.pendingInvoice"); }
 $("#heroTry").addEventListener("click", () => {
   const sample = state.samples[0];
   if (sample) {

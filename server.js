@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { config } from "./src/config.js";
 import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
 import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
@@ -69,19 +70,26 @@ app.post("/api/extract", aiLimit, async (req, res) => {
 
 // 2) Draft -> PayPal invoice, created and sent through the Invoicing API
 app.post("/api/invoices", async (req, res) => {
+  const operationId = String(req.body?.operationId || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return res.status(400).json({ error: "A valid invoice operation ID is required." });
+  }
   const { invoice, draft } = buildPayPalInvoice(req.body?.draft || {}, config.business);
-  const created = await paypal.createDraftInvoice(invoice);
+  const created = await paypal.createDraftInvoice(invoice, { requestId: operationId });
   const hasEmail = Boolean(draft.client.email);
   let payerUrl;
   try {
-    payerUrl = await paypal.sendInvoice(created.id, {
+    const existing = await paypal.getInvoice(created.id);
+    if (existing.status !== "DRAFT") payerUrl = toRow(existing).payerUrl;
+    else payerUrl = await paypal.sendInvoice(created.id, {
       subject: `Invoice from ${config.business.name}`,
       note: draft.note_to_client || undefined,
       sendToRecipient: hasEmail,
+      requestId: createHash("sha256").update(`send:${operationId}`).digest("hex").slice(0, 32),
     });
   } catch (err) {
     console.error("Invoice created but sending failed", created.id, err.message);
-    return res.status(502).json({ error: `PayPal created invoice ${created.id}, but sending could not be confirmed. Check PayPal before retrying to avoid a duplicate.` });
+    return res.status(502).json({ error: `Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.` });
   }
   const fresh = await paypal.getInvoice(created.id);
   const row = toRow(fresh);
