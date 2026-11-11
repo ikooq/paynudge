@@ -13,6 +13,7 @@ Freelancers agree on work in WhatsApp, Telegram and email threads, often in seve
 ## What PayNudge does
 
 1. **Chat → invoice.** Paste a conversation or upload screenshots. The AI finds the client, line items, quantities, prices, currency and due date ("pay within 10 days after delivery" becomes a date). It writes everything in English even when the chat is in Russian or Spanish, and it flags anything doubtful, such as a missing email or "about 20 photos".
+   For each item, PayNudge asks the model for an exact source excerpt and only shows it when it matches the chat or screenshot transcript. A match helps review but does not prove that the amount was agreed; screenshot transcription can be wrong. Editing an item clears the excerpt.
 2. **Human review, then PayPal.** Every field stays editable. One click creates the invoice through the PayPal Invoicing API and sends it, so the client gets PayPal's email with a "Pay" button. If there is no email, PayPal returns a payment link to drop into the chat.
 3. **Receivables in one table.** An AG Grid dashboard reads invoice status live from PayPal: paid, sent, overdue and how late, with a suggested next step for each invoice. Choose an aging group to filter the table, then select invoices to prepare a focused reminder batch.
 4. **AI nudges, sent by PayPal.** For overdue invoices the AI writes a reminder in the tone that fits (friendly, firm or final notice) and in the client's original language. You approve it, and PayPal's `remind` endpoint emails it with the pay button.

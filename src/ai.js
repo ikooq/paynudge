@@ -7,6 +7,7 @@ import { GoogleGenAI, ApiError } from "@google/genai";
 import { config } from "./config.js";
 import { samples } from "./samples.js";
 import { todayISO } from "./invoices.js";
+import { attachEvidence } from "./evidence.js";
 
 const ai = config.ai;
 const gemini = ai.live && ai.kind === "gemini" ? new GoogleGenAI({ apiKey: ai.apiKey }) : null;
@@ -202,12 +203,13 @@ const draftSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "description", "quantity", "unit_price"],
+        required: ["name", "description", "quantity", "unit_price", "evidence"],
         properties: {
           name: { type: "string" },
           description: { type: "string" },
           quantity: { type: "number" },
           unit_price: { type: "number" },
+          evidence: { type: "string", description: "A short exact quote from the conversation supporting this item and price; empty if unavailable." },
         },
       },
     },
@@ -225,6 +227,7 @@ function extractSystemPrompt() {
 
 Draft the invoice the seller should send:
 - Bill only what the client actually agreed to. Each distinct deliverable or fee becomes one line item with a quantity and a unit price. Do not invent items, prices or discounts.
+- For each item provide evidence: a brief verbatim excerpt from the conversation supporting the item and price. Copy it exactly in the original language; if you cannot find a quote, leave evidence empty. Do not paraphrase or fabricate quotations.
 - Treat quotes, proposals, and unaccepted estimates as unapproved; do not bill them. Follow the latest explicit agreement when earlier work, prices, or quantities are changed or cancelled. Warn when it is unclear what was approved.
 - Write item names, descriptions and the note to the client in English, whatever language the chat is in. Keep proper names as written, transliterated to Latin script when needed.
 - currency: the ISO 4217 code used in the conversation ($ means USD unless context says otherwise). If no currency appears, use ${config.business.defaultCurrency}.
@@ -243,12 +246,13 @@ export async function extractDraft({ text = "", images = [] }) {
 
   let conversation = text.trim();
   let attach = images;
+  let transcript = "";
   if (images.length && ai.visionModel) {
-    const transcript = await transcribeScreenshots(images);
+    transcript = await transcribeScreenshots(images);
     conversation = [conversation, transcript && `Transcribed from screenshots:\n${transcript}`].filter(Boolean).join("\n\n");
     attach = [];
   }
-  return structured({
+  const draft = await structured({
     system: extractSystemPrompt(),
     text: conversation
       ? `Client conversation:\n<conversation>\n${conversation}\n</conversation>`
@@ -257,6 +261,7 @@ export async function extractDraft({ text = "", images = [] }) {
     schema: draftSchema,
     name: "invoice_draft",
   });
+  return attachEvidence(draft, { text, transcript });
 }
 
 // ---------------------------------------------------------------------------

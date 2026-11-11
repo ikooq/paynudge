@@ -316,6 +316,7 @@ function renderDraft() {
         <input data-item="unit_price" class="num" type="number" min="0" step="0.01" value="${esc(it.unit_price)}" aria-label="Unit price">
         <span class="line-total">${fmt(lineTotal(it), d.currency)}</span>
         <button class="remove" type="button" data-remove="${i}" aria-label="Remove line">${icon.trash}</button>
+        <small class="item-evidence">${it.evidence && it.evidence_source ? `Source match (${esc(it.evidence_source)}): “${esc(it.evidence)}”` : "No source excerpt linked. Check this item against the original conversation."}</small>
       </div>`,
     )
     .join("");
@@ -334,6 +335,7 @@ function renderDraft() {
       <div class="items-head"><span>Item</span><span class="num">Qty</span><span class="num">Unit price</span><span class="num">Total</span><span></span></div>
       ${rows}
       <button class="add-line" type="button" id="addLine">+ Add line</button>
+      <p class="muted evidence-note">A matching excerpt is a review aid, not proof of agreement or price. Screenshot transcripts can contain errors.</p>
     </div>
     <div class="draft-foot">
       <label class="field"><span>Note to client</span><textarea data-field="note_to_client" rows="2">${esc(d.note_to_client)}</textarea></label>
@@ -379,6 +381,9 @@ function setupDraftEvents() {
       const row = t.closest(".item-row");
       const it = d.items[Number(row.dataset.index)];
       it[t.dataset.item] = t.dataset.item === "name" ? t.value : Number(t.value);
+      it.evidence = "";
+      it.evidence_source = "";
+      $(".item-evidence", row).textContent = "Edited item: check it against the original conversation.";
       $(".line-total", row).textContent = fmt(lineTotal(it), d.currency);
     }
     const total = $("#draftTotal");

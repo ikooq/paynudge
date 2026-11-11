@@ -282,6 +282,8 @@ textarea { resize: vertical; }
 .item-row input { padding: 7px 9px; }
 .item-row .line-total { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .item-row .num { text-align: right; }
+.item-evidence { grid-column: 1 / -1; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.evidence-note { font-size: 12px; margin: 8px 0 0; }
 .remove { width: 28px; height: 28px; border: 0; background: transparent; color: var(--muted); border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
 .remove:hover { background: var(--bad-soft); color: var(--bad); }
 .add-line { margin-top: 6px; background: none; border: 0; color: var(--accent); font: 600 13px var(--font); cursor: pointer; padding: 6px 0; }

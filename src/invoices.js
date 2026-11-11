@@ -28,6 +28,8 @@ export function normalizeDraft(draft, defaultCurrency = "USD") {
       description: String(it.description || "").trim().slice(0, 1000),
       quantity: round2(it.quantity) > 0 ? round2(it.quantity) : 1,
       unit_price: Math.max(0, round2(it.unit_price)),
+      evidence: String(it.evidence || "").slice(0, 300),
+      evidence_source: ["chat", "screenshot transcript"].includes(it.evidence_source) ? it.evidence_source : "",
     }))
     .filter((it) => it.name);
   const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.due_date || "") ? draft.due_date : "";
