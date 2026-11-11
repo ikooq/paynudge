@@ -247,7 +247,8 @@ export function toRow(inv, today = todayISO()) {
     memo: memo.replace(/^PayNudge memo:\s*/, "").split("\n")[0],
     language: lang,
     plan: plan ? { ...plan, progress } : null,
-    partialAllowed: Boolean(inv.configuration?.partial_payment?.allow_partial_payment),
+    // PayPal's invoice list omits `configuration`; only the single-invoice call returns it. null = unknown.
+    partialAllowed: inv.configuration ? Boolean(inv.configuration.partial_payment?.allow_partial_payment) : null,
     nextAction: nextAction(status, daysOverdue, daysUntilDue, progress),
   };
 }
