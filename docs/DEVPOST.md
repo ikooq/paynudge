@@ -23,7 +23,7 @@ Freelancers close deals in Telegram, WhatsApp and email, often in two or three l
 
 **2. Human review, then PayPal.** Every field is editable and validated (exact totals, real dates, valid email). One click creates and sends the invoice through the PayPal Invoicing API; the client gets PayPal's email with a Pay button, or a share link if there is no email.
 
-**3. Payment plans instead of pressure.** For a late invoice, PayNudge asks the AI for 2–4 installments that add up exactly to the balance and a message in the client's own language. The server re-checks the math; the seller edits and approves. PayNudge then updates the PayPal invoice to accept partial payments (minimum = the smallest installment), stores the schedule inside the invoice in PayPal, and PayPal emails the client the plan with the same pay link. The dashboard tracks it ("Plan 2/3", "On plan") and counts lateness from a missed installment, not the original due date.
+**3. Payment plans instead of pressure.** For a late invoice, PayNudge proposes installments and a message. The seller reviews them before PayPal accepts partial payments and emails the offer. The exact schedule is generated from the reviewed figures. The invoice remains overdue until the seller records that the client agreed; only then does the dashboard use the plan dates for lateness. This confirmation is recorded by the seller, not verified automatically with the client.
 
 **4. Reminders in the client's language.** Friendly, firm or final, chosen by how late an invoice is, drafted by the AI in the language the client used, sent by PayPal's remind endpoint after the seller approves. A batch view prepares several at once and holds back anyone contacted recently.
 
@@ -61,7 +61,7 @@ Nothing is sent without the seller's approval.
 - English and Russian voice notes turned into correct invoices ($950 and $350).
 
 ## What we learned
-Showing *why* the AI wrote each line (the client's own words) builds more trust than any confidence score. And for late payments, an easier way to pay often works better than a sterner reminder, and PayPal's partial payments make that possible on the same invoice.
+Matching source excerpts can make a draft easier to review, though they do not prove agreement. Offering partial payments is a possible alternative to a sterner reminder; its impact on collection rates has not been measured.
 
 ## What's next for PayNudge
 - Sign-in and per-seller PayPal connection (partner onboarding), so each freelancer sees only their own invoices.

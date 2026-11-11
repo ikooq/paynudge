@@ -251,7 +251,7 @@ app.post("/api/invoices/:id/plan-draft", aiLimit, async (req, res) => {
     rationale: raw.rationale,
     subject: raw.subject,
     note: raw.note,
-    adjusted: changed ? "Amounts were adjusted by a few cents so the plan equals the balance exactly. Check the message matches." : "",
+    adjusted: changed ? "Amounts were adjusted by a few minor currency units so the schedule equals the balance. Review it before sending." : "",
     row,
   });
 });
