@@ -372,7 +372,7 @@ textarea { resize: vertical; }
 @keyframes feedIn { from { opacity: 0; transform: translateY(-6px); } }
 
 .grid-card { padding: 0; overflow: hidden; }
-.recovery-plan { margin: 0 0 20px; }
+.recovery-plan { margin: 0 0 20px; padding: 20px; }
 .recovery-plan .mini-head { align-items: flex-start; gap: 16px; }
 .recovery-plan .mini-head p { margin: 5px 0 0; font-size: 13px; }
 .plan-list { display: grid; gap: 8px; margin-top: 14px; }
