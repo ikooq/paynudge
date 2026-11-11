@@ -5,6 +5,7 @@ import { config } from "./src/config.js";
 import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
 import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
 import { publicSamples } from "./src/samples.js";
+import { logEvent, detectPayments, listActivity } from "./src/activity.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -53,8 +54,17 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     .filter((i) => /^image\/(png|jpeg|webp|gif)$/.test(i?.media_type) && typeof i?.data === "string")
     .slice(0, 4);
   if (!text.trim() && !images.length) return res.status(400).json({ error: "Paste a conversation or add a screenshot." });
-  const raw = await extractDraft({ text, images });
-  res.json(normalizeDraft(raw, config.business.defaultCurrency));
+  const started = Date.now();
+  const draft = normalizeDraft(await extractDraft({ text, images }), config.business.defaultCurrency);
+  const lang = draft.conversation_language;
+  const source = images.length
+    ? `${images.length} screenshot${images.length > 1 ? "s" : ""}`
+    : `${/^[aeiou]/i.test(lang) ? "an" : "a"} ${lang} chat`;
+  logEvent(
+    "ai",
+    `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
+  );
+  res.json(draft);
 });
 
 // 2) Draft -> PayPal invoice, created and sent through the Invoicing API
@@ -69,13 +79,35 @@ app.post("/api/invoices", async (req, res) => {
   });
   const fresh = await paypal.getInvoice(created.id);
   const row = toRow(fresh);
+  logEvent(
+    "paypal",
+    hasEmail
+      ? `PayPal sent invoice #${row.number} to ${row.client} (${row.amount.toFixed(2)} ${row.currency})`
+      : `PayPal created a payment link for invoice #${row.number} (${row.client})`,
+    { invoiceId: row.id, sent: true },
+  );
   res.status(201).json({ row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail });
 });
 
 // 3) Receivables dashboard data, read live from PayPal
 app.get("/api/invoices", async (req, res) => {
   const rows = await allRows();
+  detectPayments(rows);
   res.json({ rows, kpis: computeKpis(rows), updatedAt: new Date().toISOString() });
+});
+
+// The collections autopilot runs in the browser (so each step shows live); it reports its start here.
+app.post("/api/autopilot/started", (req, res) => {
+  const count = Math.max(0, Math.min(50, Number(req.body?.count) || 0));
+  logEvent("agent", `Collections autopilot reviewed the ledger and picked ${count} overdue invoice${count === 1 ? "" : "s"} to chase`);
+  res.json({ ok: true });
+});
+
+// Agent activity feed: what the AI and PayPal did, newest first
+app.get("/api/activity", async (req, res) => {
+  const rows = await allRows();
+  detectPayments(rows);
+  res.json(listActivity(rows));
 });
 
 // 4) AI-written reminder for one invoice (not sent yet: the user reviews it first)
@@ -83,6 +115,7 @@ app.post("/api/invoices/:id/reminder-draft", aiLimit, async (req, res) => {
   const row = toRow(await paypal.getInvoice(req.params.id));
   const tone = ["friendly", "firm", "final"].includes(req.body?.tone) ? req.body.tone : "friendly";
   const reminder = await draftReminder({ row, tone });
+  logEvent("ai", `AI wrote a ${tone} reminder in ${row.language} for ${row.client} (#${row.number})`, { invoiceId: row.id });
   res.json({ ...reminder, tone, row });
 });
 
@@ -92,6 +125,10 @@ app.post("/api/invoices/:id/remind", async (req, res) => {
   const note = String(req.body?.note || "").trim().slice(0, 1000);
   if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });
   await paypal.remindInvoice(req.params.id, { subject, note });
+  const who = String(req.body?.client || "the client").slice(0, 80);
+  logEvent("paypal", `PayPal emailed a reminder to ${who}${req.body?.number ? ` for invoice #${String(req.body.number).slice(0, 12)}` : ""}`, {
+    invoiceId: req.params.id,
+  });
   res.json({ ok: true });
 });
 
@@ -106,6 +143,7 @@ app.post("/api/copilot", aiLimit, async (req, res) => {
     .filter((a) => byId.has(a.invoice_id))
     .filter((a) => a.type !== "remind" || byId.get(a.invoice_id).due > 0)
     .slice(0, 3);
+  logEvent("ai", `Copilot answered “${question.slice(0, 60)}”${actions.length ? ` and proposed ${actions.length} action${actions.length > 1 ? "s" : ""}` : ""}`);
   res.json({ answer: result.answer, actions });
 });
 

@@ -56,6 +56,7 @@ export async function sendInvoice(id) {
   if (!inv) throw Object.assign(new Error("Invoice not found"), { status: 404 });
   inv.status = inv.primary_recipients?.[0]?.billing_info?.email_address ? "SENT" : "UNPAID";
   inv.detail.metadata.last_sent_time = new Date().toISOString();
+  inv.detail.metadata.first_sent_time = inv.detail.metadata.last_sent_time;
   return inv.detail.metadata.recipient_view_url;
 }
 

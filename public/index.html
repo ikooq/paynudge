@@ -23,8 +23,58 @@
 
   <main>
     <section class="hero">
-      <h1>From client chat to <em>paid</em>.</h1>
-      <p>Paste a conversation or drop a screenshot. AI drafts the invoice, PayPal sends it, and PayNudge follows up until the client pays.</p>
+      <div class="hero-copy">
+        <span class="eyebrow"><i></i> AI receivables agent on PayPal</span>
+        <h1>From client chat to <em>paid</em>.</h1>
+        <p>Paste a conversation or drop a screenshot, in any language. AI drafts the invoice, PayPal sends it, and PayNudge chases the client in their own language until the money lands.</p>
+        <div class="hero-actions">
+          <button class="btn primary" id="heroTry" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
+            Try it with a sample chat
+          </button>
+          <button class="btn ghost" id="heroAutopilot" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            Run collections autopilot
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="hv-chat">
+          <div class="hv-head"><span class="hv-avatar">M</span><b>Maya · Bloom Coffee</b></div>
+          <p class="hv-bubble in">Let's go with option B for the logo!</p>
+          <p class="hv-bubble out">Logo $450 + 3 templates $40 each 👍</p>
+          <p class="hv-bubble in">Deal. Invoice maya@bloomcoffee.co</p>
+        </div>
+        <div class="hv-ai"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>AI draft</div>
+        <div class="hv-invoice">
+          <div class="hv-inv-head"><b>Invoice #0042</b><span>PayPal</span></div>
+          <div class="hv-line"><span>Logo package</span><span>$450.00</span></div>
+          <div class="hv-line"><span>3 × Instagram template</span><span>$120.00</span></div>
+          <div class="hv-line hv-total"><span>Total</span><span>$570.00</span></div>
+          <div class="hv-stamp">PAID</div>
+        </div>
+        <div class="hv-toast"><i></i> Bloom Coffee just paid $570</div>
+      </div>
+    </section>
+
+    <section class="how" aria-label="How it works">
+      <div class="how-step">
+        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z" /></svg></span>
+        <div><b>Paste the chat</b><p>Text or screenshots, in any language</p></div>
+      </div>
+      <div class="how-step">
+        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg></span>
+        <div><b>AI drafts the invoice</b><p>Items, prices, currency, due date, red flags</p></div>
+      </div>
+      <div class="how-step">
+        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3z" /><path d="M3 11h18M7 15h3" /></svg></span>
+        <div><b>PayPal sends &amp; collects</b><p>Invoicing API, pay with PayPal or card</p></div>
+      </div>
+      <div class="how-step">
+        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg></span>
+        <div><b>AI nudges until paid</b><p>Right tone, client's language, your approval</p></div>
+      </div>
     </section>
 
     <section class="create">
@@ -70,6 +120,10 @@
           <p class="muted" id="updatedAt">Loading from PayPal…</p>
         </div>
         <div class="section-tools">
+          <button class="btn primary" id="autopilotBtn" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
+            Collections autopilot
+          </button>
           <input type="search" id="gridSearch" placeholder="Search invoices" aria-label="Search invoices" />
           <button class="btn ghost icon" id="refreshBtn" title="Refresh from PayPal" aria-label="Refresh from PayPal">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
@@ -78,6 +132,23 @@
       </div>
 
       <div class="kpis" id="kpis"></div>
+
+      <div class="insights">
+        <article class="card aging">
+          <div class="mini-head">
+            <h3>Receivables aging</h3>
+            <span class="muted">Open invoices by days past due</span>
+          </div>
+          <div id="agingChart" class="aging-chart" role="img" aria-label="Open invoices grouped by how many days they are past due"></div>
+        </article>
+        <article class="card activity">
+          <div class="mini-head">
+            <h3>Agent activity</h3>
+            <span class="live-dot" title="Updates automatically"><i></i> live</span>
+          </div>
+          <ol id="activityFeed" class="feed"></ol>
+        </article>
+      </div>
 
       <article class="card copilot">
         <form id="copilotForm" class="copilot-form">
@@ -131,6 +202,28 @@
     </form>
   </dialog>
 
+  <dialog id="autopilotDialog" class="dialog wide">
+    <div class="ap">
+      <header>
+        <div>
+          <h3>Collections autopilot</h3>
+          <p class="muted" id="apSummary">The agent reviews every overdue invoice and drafts a reminder for each one.</p>
+        </div>
+        <button class="btn ghost icon" type="button" id="apClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <ol class="ap-steps" id="apSteps"></ol>
+      <div class="ap-list" id="apList"></div>
+      <footer>
+        <span class="muted" id="apHint">Nothing is sent until you approve.</span>
+        <span class="spacer"></span>
+        <button class="btn primary" type="button" id="apSend" disabled>Approve &amp; send via PayPal</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <canvas id="confetti" aria-hidden="true"></canvas>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="/app.js" type="module"></script>

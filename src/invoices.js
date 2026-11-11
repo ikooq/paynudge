@@ -151,6 +151,7 @@ export function toRow(inv, today = todayISO()) {
     dueDate,
     daysOverdue,
     lastSent: inv.detail?.metadata?.last_sent_time || "",
+    firstSent: inv.detail?.metadata?.first_sent_time || "",
     payerUrl: inv.detail?.metadata?.recipient_view_url || "",
     merchantUrl: inv.detail?.metadata?.invoicer_view_url || "",
     items: (inv.items || []).map((it) => `${it.quantity} × ${it.name}`).join(", "),

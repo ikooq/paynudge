@@ -15,7 +15,18 @@ const icon = {
   copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
 };
 
-const state = { images: [], draft: null, rows: [], status: null, nudge: null, grid: null };
+const state = {
+  images: [],
+  draft: null,
+  rows: [],
+  status: null,
+  nudge: null,
+  grid: null,
+  samples: [],
+  justPaid: new Set(),
+  watchUntil: 0, // poll PayPal faster until this time (after an invoice is sent)
+  seenActivity: null,
+};
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
@@ -101,6 +112,7 @@ async function loadStatus() {
 
 async function loadSamples() {
   const samples = await api("/api/samples");
+  state.samples = samples;
   const wrap = $("#sampleChips");
   for (const s of samples) {
     const b = document.createElement("button");
@@ -307,6 +319,10 @@ function renderDraft() {
       <button class="btn dark" id="sendBtn" type="button"></button>
     </div>`;
   updateSendHint();
+  const body = $("#draftBody");
+  body.classList.remove("reveal");
+  void body.offsetWidth; // restart the entrance animation
+  body.classList.add("reveal");
 }
 
 function updateSendHint() {
@@ -396,8 +412,66 @@ function renderSuccess(row, payerUrl, emailed) {
         ${link ? `<a class="btn primary" href="${esc(link)}" target="_blank" rel="noopener">${icon.external} Open client's payment page</a>` : ""}
         <button class="btn ghost" id="newInvoice" type="button">New invoice</button>
       </div>
-      <p class="muted">PayNudge is now tracking it below and will suggest a nudge if it goes overdue.</p>
+      <p class="watching"><i></i> Watching PayPal for the payment. Pay it on the client's page and this dashboard will notice.</p>
     </div>`;
+  state.watchUntil = Date.now() + 10 * 60 * 1000;
+  confetti();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Celebration: a small dependency-free confetti burst
+// ---------------------------------------------------------------------------------------------
+function confetti() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const canvas = $("#confetti");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const colors = ["#5b4cf0", "#8b80ff", "#c8f169", "#16803c", "#f1b45a", "#ffffff"];
+  const parts = Array.from({ length: 140 }, () => ({
+    x: innerWidth / 2 + (Math.random() - 0.5) * 200,
+    y: innerHeight * 0.35,
+    vx: (Math.random() - 0.5) * 14,
+    vy: -Math.random() * 13 - 4,
+    size: Math.random() * 7 + 4,
+    rot: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.3,
+    color: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const start = performance.now();
+  (function frame(now) {
+    const t = now - start;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of parts) {
+      p.vy += 0.35;
+      p.vx *= 0.99;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t / 2600);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+      ctx.restore();
+    }
+    if (t < 2600) requestAnimationFrame(frame);
+    else ctx.clearRect(0, 0, innerWidth, innerHeight);
+  })(start);
+}
+
+function celebratePayment(row) {
+  const amount = row.paid || row.amount;
+  toast(`🎉 ${row.client} just paid ${fmt(amount, row.currency)} for invoice #${row.number}`, "paid");
+  confetti();
+  state.justPaid.add(row.id);
+  setTimeout(() => {
+    state.justPaid.delete(row.id);
+    state.grid?.redrawRows();
+  }, 6000);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -521,6 +595,7 @@ function setupGrid() {
     paginationPageSizeSelector: [10, 25, 50],
     animateRows: true,
     getRowId: (p) => p.data.id,
+    getRowClass: (p) => (state.justPaid.has(p.data.id) ? "just-paid" : ""),
     defaultColDef: { sortable: true, resizable: true, suppressMovable: true },
     overlayNoRowsTemplate: '<span class="muted">No invoices yet. Draft your first one above.</span>',
     loading: true,
@@ -543,14 +618,27 @@ function renderKpis(k) {
     <div class="kpi"><span>Invoices</span><strong>${k.total}</strong><small>Tracked in PayPal</small></div>`;
 }
 
+const PAID = new Set(["PAID", "MARKED_AS_PAID", "PAID_EXTERNAL"]);
+
 async function loadInvoices({ flashId, announce } = {}) {
   try {
     const data = await api("/api/invoices");
+    const before = new Map(state.rows.map((r) => [r.id, r]));
+    const newlyPaid = state.rows.length
+      ? data.rows.filter((r) => {
+          const old = before.get(r.id);
+          return old && ((PAID.has(r.status) && !PAID.has(old.status)) || r.paid > old.paid);
+        })
+      : [];
     state.rows = data.rows;
     renderKpis(data.kpis);
+    renderAging(data.rows);
+    newlyPaid.forEach(celebratePayment);
+    loadActivity();
     if (state.grid) {
       state.grid.setGridOption("loading", false);
       state.grid.setGridOption("rowData", data.rows);
+      if (newlyPaid.length) state.grid.redrawRows();
       if (flashId) {
         const node = state.grid.getRowNode(flashId);
         if (node) {
@@ -567,6 +655,223 @@ async function loadInvoices({ flashId, announce } = {}) {
     state.grid?.setGridOption("loading", false);
     if (announce) toast(err.message, "error");
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Insights: receivables aging (one series, ordered by age) + agent activity feed
+// ---------------------------------------------------------------------------------------------
+const BUCKETS = [
+  { label: "Not due yet", test: (r) => r.daysOverdue === 0 },
+  { label: "1–7 days", test: (r) => r.daysOverdue >= 1 && r.daysOverdue <= 7 },
+  { label: "8–21 days", test: (r) => r.daysOverdue >= 8 && r.daysOverdue <= 21 },
+  { label: "21+ days", test: (r) => r.daysOverdue > 21 },
+];
+
+function renderAging(rows) {
+  const open = rows.filter((r) => r.due > 0);
+  const data = BUCKETS.map((b) => {
+    const list = open.filter(b.test);
+    const totals = {};
+    for (const r of list) totals[r.currency] = (totals[r.currency] || 0) + r.due;
+    return { ...b, count: list.length, totals, clients: list.map((r) => r.client) };
+  });
+  const max = Math.max(1, ...data.map((d) => d.count));
+  $("#agingChart").innerHTML = open.length
+    ? data
+        .map((d, i) => {
+          const money = Object.entries(d.totals).map(([c, v]) => fmt(v, c)).join(" + ") || "—";
+          const tip = d.count ? `${d.label}: ${d.count} invoice${d.count === 1 ? "" : "s"} (${d.clients.join(", ")}), ${money}` : `${d.label}: none`;
+          return `<div class="aging-row" data-bucket="${i}" title="${esc(tip)}">
+            <span class="label">${d.label}</span>
+            <div class="aging-track">
+              <div class="aging-bar" style="width:${d.count ? Math.max(6, (d.count / max) * 62) : 0.6}%"></div>
+              <span class="aging-value">${d.count ? esc(money) : "—"}<small>${d.count ? `${d.count} inv.` : ""}</small></span>
+            </div>
+          </div>`;
+        })
+        .join("")
+    : '<p class="muted">No open invoices. Everything is collected.</p>';
+}
+
+const FEED_ICONS = {
+  ai: icon.sparkle,
+  agent: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  paypal: '<svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg>',
+  payment: icon.check,
+};
+
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
+}
+
+let activityBusy = false;
+async function loadActivity() {
+  if (activityBusy) return;
+  activityBusy = true;
+  try {
+    const items = await api("/api/activity");
+    const firstLoad = state.seenActivity === null;
+    const seen = state.seenActivity || new Set();
+    $("#activityFeed").innerHTML = items.length
+      ? items
+          .map(
+            (e) => `<li class="${!firstLoad && !seen.has(e.id) ? "new" : ""}">
+              <span class="ico ${e.kind}">${FEED_ICONS[e.kind] || icon.sparkle}</span>
+              <span>${esc(e.text)}</span>
+              <time datetime="${esc(e.at)}">${timeAgo(e.at)}</time>
+            </li>`,
+          )
+          .join("")
+      : '<li class="empty-feed">Nothing yet. Draft an invoice to see the agent at work.</li>';
+    state.seenActivity = new Set(items.map((e) => e.id));
+  } catch {
+    /* the feed is decorative; the grid shows the error */
+  } finally {
+    activityBusy = false;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Collections autopilot: the agent picks overdue invoices, drafts a reminder for each in the
+// right tone and the client's language, and sends the approved ones through PayPal.
+// ---------------------------------------------------------------------------------------------
+const toneFor = (r) => (r.daysOverdue > 21 ? "final" : r.daysOverdue > 7 ? "firm" : "friendly");
+const ap = { items: [], running: false };
+
+function apSteps(active) {
+  const steps = ["Review ledger", "Pick tone & language", "Draft reminders", "Your approval", "Send via PayPal"];
+  $("#apSteps").innerHTML = steps
+    .map((s, i) => `<li class="${i < active ? "done" : i === active ? "active" : ""}">${i < active ? icon.check : i === active ? '<span class="spinner"></span>' : ""}${s}</li>`)
+    .join("");
+}
+
+function apCard(item, i) {
+  const r = item.row;
+  const state_ =
+    item.status === "writing" ? `<span class="state"><span class="spinner"></span> writing…</span>`
+    : item.status === "sending" ? `<span class="state"><span class="spinner"></span> sending…</span>`
+    : item.status === "sent" ? `<span class="state ok">${icon.check} sent by PayPal</span>`
+    : item.status === "error" ? `<span class="state err">${esc(item.error)}</span>`
+    : "";
+  const body =
+    item.status === "writing"
+      ? '<div class="skeleton"></div>'
+      : `<input class="subject" data-i="${i}" data-f="subject" value="${esc(item.subject)}" aria-label="Subject" ${item.status === "sent" ? "disabled" : ""}>
+         <textarea rows="3" data-i="${i}" data-f="note" aria-label="Message" ${item.status === "sent" ? "disabled" : ""}>${esc(item.note)}</textarea>`;
+  return `<article class="ap-card ${item.include ? "" : "off"} ${item.status === "sent" ? "sent" : ""}">
+    <div class="ap-top">
+      <input type="checkbox" data-i="${i}" ${item.include ? "checked" : ""} ${item.status === "sent" ? "disabled" : ""} aria-label="Include ${esc(r.client)}">
+      <b>${esc(r.client)}</b>
+      <span class="meta">#${esc(r.number)} · ${fmt(r.due, r.currency)} · ${r.daysOverdue} days late · ${esc(r.language)}</span>
+      <span class="pill ${item.tone === "final" ? "bad" : item.tone === "firm" ? "warn" : "info"}">${item.tone}</span>
+      ${state_}
+    </div>
+    ${body}
+  </article>`;
+}
+
+function apRender() {
+  $("#apList").innerHTML = ap.items.length
+    ? ap.items.map(apCard).join("")
+    : '<div class="ap-empty">🎉 Nothing is overdue. The agent has nobody to chase right now.</div>';
+  const chosen = ap.items.filter((x) => x.include && x.status === "ready");
+  const btn = $("#apSend");
+  btn.disabled = ap.running || !chosen.length;
+  btn.textContent = chosen.length ? `Approve & send ${chosen.length} reminder${chosen.length > 1 ? "s" : ""} via PayPal` : "Approve & send via PayPal";
+}
+
+async function openAutopilot() {
+  const dlg = $("#autopilotDialog");
+  if (!dlg.open) dlg.showModal();
+  if (ap.running) return;
+  ap.running = true;
+  apSteps(0);
+  $("#apHint").textContent = "Nothing is sent until you approve.";
+  try {
+    await loadInvoices();
+    const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
+    ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: true, status: "writing", subject: "", note: "" }));
+    $("#apSummary").textContent = overdue.length
+      ? `The agent found ${overdue.length} overdue invoice${overdue.length > 1 ? "s" : ""}. Tone follows how late each one is; each message is written in the client's language.`
+      : "The agent reviewed every open invoice in PayPal.";
+    api("/api/autopilot/started", { method: "POST", body: { count: overdue.length } }).then(loadActivity).catch(() => {});
+    apSteps(overdue.length ? 2 : 5);
+    apRender();
+    // Draft two at a time so the free AI quota is not hit all at once.
+    let next = 0;
+    const worker = async () => {
+      while (next < ap.items.length) {
+        const item = ap.items[next++];
+        try {
+          const r = await api(`/api/invoices/${encodeURIComponent(item.row.id)}/reminder-draft`, { method: "POST", body: { tone: item.tone } });
+          Object.assign(item, { subject: r.subject, note: r.note, status: "ready" });
+        } catch (err) {
+          Object.assign(item, { status: "error", error: err.message, include: false });
+        }
+        apRender();
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    if (ap.items.length) apSteps(3);
+    loadActivity();
+  } finally {
+    ap.running = false;
+    apRender();
+  }
+}
+
+async function sendAutopilot() {
+  const chosen = ap.items.filter((x) => x.include && x.status === "ready");
+  if (!chosen.length) return;
+  ap.running = true;
+  apSteps(4);
+  for (const item of chosen) {
+    item.status = "sending";
+    apRender();
+    try {
+      await api(`/api/invoices/${encodeURIComponent(item.row.id)}/remind`, {
+        method: "POST",
+        body: { subject: item.subject, note: item.note, client: item.row.client, number: item.row.number },
+      });
+      item.status = "sent";
+    } catch (err) {
+      Object.assign(item, { status: "error", error: err.message });
+    }
+    apRender();
+  }
+  ap.running = false;
+  apSteps(5);
+  apRender();
+  const sent = chosen.filter((x) => x.status === "sent").length;
+  $("#apHint").textContent = `${sent} reminder${sent === 1 ? "" : "s"} sent by PayPal.`;
+  toast(`Autopilot: PayPal sent ${sent} reminder${sent === 1 ? "" : "s"}`);
+  if (sent) confetti();
+  loadInvoices();
+}
+
+function setupAutopilot() {
+  $("#autopilotBtn").addEventListener("click", openAutopilot);
+  $("#heroAutopilot").addEventListener("click", () => {
+    $(".receivables").scrollIntoView({ behavior: "smooth" });
+    openAutopilot();
+  });
+  $("#apClose").addEventListener("click", () => $("#autopilotDialog").close());
+  $("#apSend").addEventListener("click", sendAutopilot);
+  $("#apList").addEventListener("change", (e) => {
+    const i = e.target.dataset.i;
+    if (i !== undefined && e.target.type === "checkbox") {
+      ap.items[i].include = e.target.checked;
+      apRender();
+    }
+  });
+  $("#apList").addEventListener("input", (e) => {
+    const { i, f } = e.target.dataset;
+    if (i !== undefined && f) ap.items[i][f] = e.target.value;
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -686,7 +991,7 @@ function setupNudge() {
       const row = state.nudge.row;
       await api(`/api/invoices/${encodeURIComponent(row.id)}/remind`, {
         method: "POST",
-        body: { subject: $("#nudgeSubject").value, note: $("#nudgeNote").value },
+        body: { subject: $("#nudgeSubject").value, note: $("#nudgeNote").value, client: row.client, number: row.number },
       });
       $("#nudgeDialog").close();
       toast(`Reminder sent via PayPal${row.email ? ` to ${row.email}` : ""}`);
@@ -708,10 +1013,29 @@ setupComposer();
 setupDraftEvents();
 setupCopilot();
 setupNudge();
+setupAutopilot();
 setupGrid();
+$("#heroTry").addEventListener("click", () => {
+  const sample = state.samples[0];
+  if (sample) {
+    $("#chatInput").value = sample.text;
+    state.images = [];
+    renderThumbs();
+  }
+  $(".create").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (sample) setTimeout(extract, 450);
+});
 await loadStatus().catch((e) => toast(e.message, "error"));
 loadSamples();
 loadInvoices();
+// Poll PayPal every 15 s, or every 4 s while waiting for a payment after sending an invoice.
+let lastPoll = Date.now();
 setInterval(() => {
-  if (document.visibilityState === "visible" && !$("#nudgeDialog").open) loadInvoices();
-}, 20000);
+  const busy = $("#nudgeDialog").open || $("#autopilotDialog").open;
+  const every = Date.now() < state.watchUntil ? 4000 : 15000;
+  if (document.visibilityState === "visible" && !busy && Date.now() - lastPoll >= every) {
+    lastPoll = Date.now();
+    loadInvoices();
+  }
+}, 1000);
+setInterval(() => $$("#activityFeed time").forEach((t) => (t.textContent = timeAgo(t.getAttribute("datetime")))), 30000);

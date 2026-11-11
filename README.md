@@ -2,6 +2,8 @@
 
 **An AI receivables agent for freelancers and small businesses.** Paste a client conversation or drop a chat screenshot, in any language. AI (GPT-OSS 120B and Qwen 3.8 on Groq) drafts the invoice, the **PayPal Invoicing API** creates and sends it, and PayNudge follows up with AI-written reminders until the client pays.
 
+**Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq; the free instance may take up to a minute to wake up)
+
 > Built for the PayPal AI Hackathon "Build What's Next with PayPal and AI".
 
 ## The problem
@@ -14,9 +16,19 @@ Freelancers agree on work in WhatsApp, Telegram and email threads, often in seve
 2. **Human review, then PayPal.** Every field stays editable. One click creates the invoice through the PayPal Invoicing API and sends it, so the client gets PayPal's email with a "Pay" button. If there is no email, PayPal returns a payment link to drop into the chat.
 3. **Receivables in one table.** An AG Grid dashboard reads invoice status live from PayPal: paid, sent, overdue and how late, with a suggested next step for each invoice.
 4. **AI nudges, sent by PayPal.** For overdue invoices the AI writes a reminder in the tone that fits (friendly, firm or final notice) and in the client's original language. You approve it, and PayPal's `remind` endpoint emails it with the pay button.
-5. **Receivables copilot.** Ask "Who should I chase first?" The AI answers from your live PayPal data and proposes one-click actions.
+5. **Collections autopilot.** One click and the agent works through the whole ledger: it picks every overdue invoice, chooses the tone from how late it is (1–7 days friendly, 8–21 firm, 21+ final notice), and writes each reminder in that client's language. You review the batch, untick or edit anything, and PayPal sends the approved reminders.
+6. **Receivables copilot.** Ask "Who should I chase first?" The AI answers from your live PayPal data and proposes one-click actions.
+7. **Insights and a live agent feed.** A receivables aging chart (not due, 1–7, 8–21, 21+ days) and an activity feed of everything the AI and PayPal did: drafts, sent invoices, reminders, payments.
+8. **The payment moment.** After an invoice is sent, the dashboard watches PayPal. When the client pays, it announces "Bloom Coffee just paid $690", the row lights up and the KPIs update.
 
 The AI never sends anything on its own. Every invoice and reminder is reviewed by a person first.
+
+### Try it in 60 seconds (live demo)
+
+1. Click **Try it with a sample chat**: the AI drafts an invoice from a real-looking client chat.
+2. Click **Create & send via PayPal**, then **Open client's payment page** to see the real PayPal sandbox invoice.
+3. Click **Collections autopilot** to watch the agent draft reminders for the overdue invoices in English, Russian and Spanish.
+4. Ask the copilot "Who should I chase first?"
 
 ## How PayPal is used
 
@@ -68,6 +80,7 @@ flowchart LR
 - `src/paypal.js`: PayPal Invoicing API client (OAuth token caching, idempotency keys)
 - `src/invoices.js`: AI draft → PayPal invoice → dashboard row conversions
 - `src/mockPaypal.js`: in-memory PayPal stand-in for demo mode
+- `src/activity.js`: agent activity log and payment detection between refreshes
 - `public/`: front end (vanilla JS + AG Grid Community)
 
 ## Run it locally
