@@ -328,7 +328,7 @@ function renderDraft() {
       <label class="field"><span>Email</span><input data-field="client.email" type="email" value="${esc(d.client.email)}" placeholder="client@company.com"></label>
       <label class="field"><span>Currency</span><input data-field="currency" maxlength="3" value="${esc(d.currency)}"></label>
       <label class="field"><span>Due date</span><input data-field="due_date" type="date" value="${esc(d.due_date)}"></label>
-      <label class="field"><span>Terms</span><input data-field="payment_terms_label" value="${esc(d.payment_terms_label)}" placeholder="Due on receipt"></label>
+      <label class="field"><span>Payment terms</span><span><input data-field="due_on_receipt" type="checkbox" ${d.due_on_receipt ? "checked" : ""}> Due on receipt (if no date is set)</span></label>
     </div>
     <div class="items">
       <div class="items-head"><span>Item</span><span class="num">Qty</span><span class="num">Unit price</span><span class="num">Total</span><span></span></div>
@@ -372,7 +372,7 @@ function setupDraftEvents() {
     if (t.dataset.field) {
       const [a, b] = t.dataset.field.split(".");
       if (b) d[a][b] = t.value;
-      else d[a] = a === "currency" ? t.value.toUpperCase() : t.value;
+      else d[a] = a === "due_on_receipt" ? t.checked : a === "currency" ? t.value.toUpperCase() : t.value;
       if (t.dataset.field === "client.email") updateSendHint();
     }
     if (t.dataset.item) {
@@ -425,6 +425,7 @@ async function sendInvoice() {
   const d = state.draft;
   if (!d.items.length || draftTotal() <= 0) return toast("Add at least one line item with a price.", "error");
   if (d.client.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.client.email)) return toast("That email doesn't look right.", "error");
+  if (!d.due_date && !d.due_on_receipt) return toast("Choose a due date or confirm payment is due on receipt.", "error");
   const btn = $("#sendBtn");
   if (!state.pendingInvoice) {
     state.pendingInvoice = { operationId: crypto.randomUUID(), draft: structuredClone(d) };

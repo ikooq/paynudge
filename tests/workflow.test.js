@@ -34,7 +34,7 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
     const response = await fetch(base + url, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: response.status, data: await response.json() };
   };
-  const invoice = { operationId: randomUUID(), draft: { client: { name: "Test Buyer", email: "buyer@example.com" }, currency: "USD", items: [{ name: "Design", quantity: 2, unit_price: 75 }], conversation_language: "English" } };
+  const invoice = { operationId: randomUUID(), draft: { client: { name: "Test Buyer", email: "buyer@example.com" }, currency: "USD", items: [{ name: "Design", quantity: 2, unit_price: 75 }], conversation_language: "English", due_on_receipt: true } };
   const created = await json("/api/invoices", invoice);
   assert.equal(created.status, 201);
   const retry = await json("/api/invoices", invoice);

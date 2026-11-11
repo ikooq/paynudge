@@ -4,7 +4,7 @@ import { buildPayPalInvoice, toRow } from "../src/invoices.js";
 import * as mock from "../src/mockPaypal.js";
 
 const business = { name: "Studio", defaultCurrency: "USD" };
-const draft = () => ({ client: { name: "Ada", email: "ada@example.com" }, currency: "USD", items: [{ name: "Design", quantity: 2, unit_price: 75 }], summary: "x".repeat(600), conversation_language: "Russian" });
+const draft = () => ({ client: { name: "Ada", email: "ada@example.com" }, currency: "USD", items: [{ name: "Design", quantity: 2, unit_price: 75 }], summary: "x".repeat(600), conversation_language: "Russian", due_on_receipt: true });
 
 test("invoice amounts and language survive conversion", () => {
   const { invoice, draft: normalized } = buildPayPalInvoice(draft(), business);
@@ -15,6 +15,8 @@ test("invoice amounts and language survive conversion", () => {
 });
 
 test("unsafe dates and amounts are rejected instead of silently changed", () => {
+  assert.throws(() => buildPayPalInvoice({ ...draft(), due_on_receipt: false }, business), /explicitly confirm/);
+  assert.equal(buildPayPalInvoice(draft(), business).invoice.detail.payment_term.term_type, "DUE_ON_RECEIPT");
   for (const value of ["2020-01-01", "2026-02-31", "not-a-date"]) {
     assert.throws(() => buildPayPalInvoice({ ...draft(), due_date: value }, business), /date/i);
   }

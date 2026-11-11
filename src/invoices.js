@@ -40,6 +40,7 @@ export function normalizeDraft(draft, defaultCurrency = "USD") {
     currency,
     items,
     due_date: dueDate,
+    due_on_receipt: draft.due_on_receipt === true,
     payment_terms_label: String(draft.payment_terms_label || "").trim(),
     note_to_client: String(draft.note_to_client || "").trim().slice(0, 4000),
     summary: String(draft.summary || "").trim(),
@@ -70,6 +71,7 @@ export function buildPayPalInvoice(draft, business) {
   if (draft.currency && !/^[A-Za-z]{3}$/.test(String(draft.currency))) bad("Enter a three-letter currency code.");
   if (draft.client?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.client.email)) bad("Enter a valid client email address.");
   if (draft.due_date && (!/^\d{4}-\d{2}-\d{2}$/.test(draft.due_date) || Number.isNaN(Date.parse(`${draft.due_date}T00:00:00Z`)) || new Date(`${draft.due_date}T00:00:00Z`).toISOString().slice(0, 10) !== draft.due_date)) bad("Enter a valid due date.");
+  if (!draft.due_date && draft.due_on_receipt !== true) bad("Choose a due date or explicitly confirm payment is due on receipt.");
   const d = normalizeDraft(draft, business.defaultCurrency);
   if (d.total <= 0) bad("The invoice total must be greater than zero.");
   if (ZERO_DECIMAL.has(d.currency) && d.items.some((item) => !Number.isInteger(item.unit_price))) bad(`${d.currency} prices must be whole amounts.`);
