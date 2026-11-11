@@ -131,13 +131,25 @@ function parseJson(raw) {
   }
 }
 
+const schemaMiss = (err) => err instanceof ProviderError && err.status === 400 && /schema|failed_generation/i.test(err.message);
+
 async function structured({ system, text, images = [], schema, name }) {
   const call = ai.kind === "gemini" ? callGemini : callOpenAICompatible;
   const models = ai.fallbackModel && ai.fallbackModel !== ai.model ? [ai.model, ai.fallbackModel] : [ai.model];
-  for (const [i, model] of models.entries()) {
+  // An occasional output that misses the schema is usually fixed by asking the same model again,
+  // so the main model gets one extra attempt for that case before the (weaker) fallback.
+  let secondTry = true;
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
     try {
       return parseJson(await call(model, { system, text, images: images.slice(0, ai.maxImages), schema, name }));
     } catch (err) {
+      if (i === 0 && secondTry && schemaMiss(err)) {
+        secondTry = false;
+        console.warn(`${ai.name} ${model} output missed the schema; asking it once more`);
+        i -= 1;
+        continue;
+      }
       if (i < models.length - 1 && shouldRetry(err)) {
         console.warn(`${ai.name} ${model} failed (${err.status}); retrying on ${models[i + 1]}`);
         continue;
@@ -165,6 +177,58 @@ async function transcribeScreenshots(images) {
     if (err instanceof ProviderError && err.status === 429) {
       throw new AIError("Screenshot AI quota is exhausted. Use ‘Read screenshot locally’, paste the chat as text, or try again later.", 429);
     }
+    throw friendlyError(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Voice note -> text (Whisper on Groq). The transcript is shown to the seller and then read by
+// the same invoice extraction as a pasted chat, so every line item still quotes its source.
+// ---------------------------------------------------------------------------
+const AUDIO_MODELS = ["whisper-large-v3-turbo", "whisper-large-v3"];
+const AUDIO_TYPES = { "audio/webm": "webm", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/m4a": "m4a", "audio/wav": "wav", "audio/x-wav": "wav", "audio/flac": "flac" };
+
+export function audioSupported() {
+  return ai.live && ai.kind === "openai" && ai.id === "groq";
+}
+
+export async function transcribeAudio({ media_type, data }) {
+  const type = String(media_type || "").split(";")[0].trim().toLowerCase();
+  const ext = AUDIO_TYPES[type];
+  if (!ext) throw new AIError("Unsupported audio format. Use webm, ogg, mp3, m4a, wav or flac.", 400);
+  const bytes = Buffer.from(String(data || ""), "base64");
+  if (!bytes.length) throw new AIError("The voice note is empty.", 400);
+  if (bytes.length > 10 * 1024 * 1024) throw new AIError("Voice notes can be up to 10 MB (about 10 minutes).", 400);
+
+  if (!ai.live) {
+    return {
+      text: "Voice note: Invoice Maya Chen from Bloom Coffee. Logo package 450 dollars, three Instagram templates at 40 dollars each. Email maya@bloomcoffee.co, payment within a week.",
+      language: "english",
+      seconds: 9,
+      demo: true,
+    };
+  }
+  if (!audioSupported()) throw new AIError(`Voice notes need the Groq provider; ${ai.name} is configured.`, 501);
+
+  for (const [i, model] of AUDIO_MODELS.entries()) {
+    const form = new FormData();
+    form.append("file", new Blob([bytes], { type }), `voice-note.${ext}`);
+    form.append("model", model);
+    form.append("response_format", "verbose_json");
+    form.append("temperature", "0");
+    const res = await fetchWithRetry(`${ai.baseUrl}/audio/transcriptions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ai.apiKey}` },
+      body: form,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const text = String(body.text || "").trim();
+      if (!text) throw new AIError("No speech was recognized in the voice note.", 422);
+      return { text, language: body.language || "", seconds: Math.round(Number(body.duration) || 0) };
+    }
+    const err = new ProviderError(res.status, body?.error?.message || `HTTP ${res.status}`);
+    if (i < AUDIO_MODELS.length - 1 && RETRYABLE.has(res.status)) continue;
     throw friendlyError(err);
   }
 }
@@ -329,6 +393,59 @@ Write in the language the client used in the original conversation (given below)
 // 3. Receivables copilot: answers questions about invoices and proposes actions
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 2b. Late invoice -> payment plan proposal (schedule + message in the client's language).
+// The server re-checks the schedule (src/invoices.js validatePlan); the seller approves it;
+// PayPal then accepts partial payments on the same invoice.
+// ---------------------------------------------------------------------------
+const planSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["installments", "rationale", "subject", "note"],
+  properties: {
+    installments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["due_date", "amount"],
+        properties: {
+          due_date: { type: "string", description: "YYYY-MM-DD" },
+          amount: { type: "number" },
+        },
+      },
+    },
+    rationale: { type: "string", description: "One or two sentences for the seller (English): why this schedule." },
+    subject: { type: "string" },
+    note: { type: "string" },
+  },
+};
+
+export async function proposePaymentPlan({ row }) {
+  if (!config.ai.live) return demoPlan(row);
+  const system = `You help ${config.business.name}, a freelancer, recover a late invoice by offering the client a payment plan instead of more pressure.
+Propose 2 to 4 installments that add up EXACTLY to the amount due. The first installment is due within 7 days of today and should be the largest or equal share (at least 30% of the balance); the whole plan ends within 60 days; dates strictly increase; prefer round amounts. Use more installments for larger balances or longer delays, fewer for small ones.
+Then write the message PayPal will email with the invoice's "View and pay" button: in the language the client used in the original conversation, warm and respectful, no blame. It must list each installment with date and amount, say that the invoice now accepts partial payments so each installment can be paid with the same PayPal link, and thank them. Subject at most 70 characters; note at most 600 characters, plain text; sign as ${config.business.name}. Never include links or bank details. The rationale is for the seller, in English.`;
+  const facts = {
+    client: row.client,
+    contact: row.contact,
+    invoice_number: row.number,
+    amount_due: row.due,
+    currency: row.currency,
+    original_due_date: row.dueDate,
+    days_overdue: row.daysOverdue,
+    today: todayISO(),
+    conversation_language: row.language,
+    relationship_notes: row.memo,
+  };
+  return structured({
+    system,
+    text: `Invoice facts:\n${JSON.stringify(facts, null, 2)}`,
+    schema: planSchema,
+    name: "payment_plan",
+  });
+}
+
 const copilotSchema = {
   type: "object",
   additionalProperties: false,
@@ -390,7 +507,8 @@ function shift(days) {
 }
 
 function demoExtract(text) {
-  const sample = samples.find((s) => s.text.trim() === text.trim());
+  // The demo voice note (see transcribeAudio) describes the Bloom Coffee job, so it maps to that sample.
+  const sample = samples.find((s) => s.text.trim() === text.trim()) || (/Bloom Coffee/.test(text) && /Voice note/.test(text) ? samples[0] : null);
   if (sample) {
     const { dueInDays, ...rest } = sample.expected;
     return { ...rest, due_date: dueInDays ? shift(dueInDays) : "" };
@@ -430,6 +548,20 @@ function demoReminder(row, tone) {
     },
   };
   return text[tone] || text.friendly;
+}
+
+function demoPlan(row) {
+  const n = row.due >= 1000 ? 3 : 2;
+  const step = Math.floor((row.due / n) * 100) / 100;
+  const installments = Array.from({ length: n }, (_, i) => ({ due_date: shift(3 + i * 14), amount: i === n - 1 ? Math.round((row.due - step * (n - 1)) * 100) / 100 : step }));
+  const name = row.contact?.split(" ")[0] || "there";
+  const lines = installments.map((i) => `${i.due_date}: ${i.amount.toFixed(2)} ${row.currency}`).join("\n");
+  return {
+    installments,
+    rationale: `Demo mode: ${n} equal installments over about ${(n - 1) * 2} weeks for a ${row.daysOverdue}-day-late balance.`,
+    subject: `A payment plan for invoice #${row.number}`,
+    note: `Hi ${name}, to make invoice #${row.number} easier, you can pay it in ${n} parts:\n${lines}\nThe invoice now accepts partial payments, so you can use the same PayPal link for each part. Thank you! — ${config.business.name}`,
+  };
 }
 
 function demoCopilot(rows) {

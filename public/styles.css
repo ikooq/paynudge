@@ -381,6 +381,40 @@ textarea { resize: vertical; }
 
 .grid-card { padding: 0; overflow: hidden; }
 
+/* AG Grid toolbar, progress cells, totals */
+.grid-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px 0; }
+.seg { display: inline-flex; gap: 3px; padding: 3px; background: var(--surface-2); border-radius: 10px; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 13px var(--font); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+.seg button:focus-visible { outline: 2px solid var(--accent); }
+.cell-progress { display: flex; align-items: center; gap: 8px; height: 100%; }
+.cell-progress .bar { position: relative; flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.cell-progress .bar span { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--accent); }
+.cell-progress .bar.full span { background: var(--ok); }
+.cell-progress .bar i { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--surface); }
+.cell-progress small { width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+.ag-row-pinned { font-weight: 600; }
+.ag-row-pinned .cell-client small { font-weight: 500; }
+
+/* Payment plan dialog */
+.plan-why { font-size: 13.5px; margin: 0; }
+.plan-schedule { display: grid; gap: 6px; }
+.plan-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 28px; gap: 8px; align-items: center; }
+.plan-head { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-row .plan-rank { color: var(--accent); font-weight: 700; }
+.plan-row input { padding: 7px 9px; }
+.plan-check { margin: 0; font-size: 13.5px; font-weight: 600; }
+.plan-check.ok { color: var(--ok); }
+.plan-check.bad { color: var(--bad); }
+.plan-effect { font-size: 12.5px; margin: 0; }
+.nudge-btn.plan { border-color: color-mix(in srgb, var(--info) 45%, var(--border)); }
+.dialog .ap { overflow-y: auto; }
+
+/* Voice note recording state */
+#voiceBtn.recording { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+#voiceBtn.recording svg { animation: blink 1s infinite; }
+#voiceBtn[hidden], #audioUpload[hidden] { display: none; }
+
 /* Tabs under the KPIs */
 .tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: 12px; width: fit-content; max-width: 100%; overflow-x: auto; }
 .tab { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--font); padding: 8px 16px; border-radius: 9px; cursor: pointer; white-space: nowrap; }

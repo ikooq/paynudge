@@ -1,6 +1,6 @@
 # PayNudge: from client chat to paid
 
-**An AI receivables agent for freelancers and small businesses.** Paste a client conversation or drop a chat screenshot, in any language. AI (GPT-OSS 120B and Qwen 3.8 on Groq) drafts the invoice, the **PayPal Invoicing API** creates and sends it, and PayNudge follows up with AI-written reminders until the client pays.
+**An AI receivables assistant for freelancers and small businesses.** Paste a client chat, drop a screenshot or record a voice note, in any language. AI drafts the invoice and quotes the chat line behind every item, the **PayPal Invoicing API** creates and sends it, and when a client falls behind, PayNudge offers an AI-drafted **payment plan** that PayPal collects in installments on the same invoice.
 
 **Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq on free plans. A GitHub Action pings it every 10 minutes to keep it awake; if it was asleep anyway, the first load can take up to a minute.)
 
@@ -15,9 +15,11 @@ Freelancers agree on work in WhatsApp, Telegram and email threads, often in seve
 1. **Chat → invoice.** Paste a conversation or upload screenshots. The AI finds the client, line items, quantities, prices, currency and due date ("pay within 10 days after delivery" becomes a date). It writes everything in English even when the chat is in Russian or Spanish, and it flags anything doubtful, such as a missing email or "about 20 photos".
    For each item, PayNudge asks the model for an exact source excerpt and only shows it when it matches the chat or screenshot transcript. A match helps review but does not prove that the amount was agreed; screenshot transcription can be wrong. Editing an item clears the excerpt.
    If the vision model is unavailable, **Read screenshot locally** uses browser-based Tesseract OCR for English, Russian and Spanish. The first use downloads language data; the screenshot is processed on the device, and you can correct the extracted text before sending it to the AI provider. OCR can make mistakes and requires manual review.
+   **Voice notes:** record a voice message in the browser (or upload an audio file) describing the job. Whisper on Groq transcribes it into the chat box, where you can read and fix it, and the same extraction builds the invoice with quotes from the transcript. Tested live with an English and a Russian voice note: both produced correct totals ($950 and $350) with quotes for every item; a dictated email address was not recognized and was flagged for review instead of guessed.
 2. **Human review, then PayPal.** Every field stays editable. One click creates the invoice through the PayPal Invoicing API and sends it, so the client gets PayPal's email with a "Pay" button. If there is no email, PayPal returns a payment link to drop into the chat.
-3. **Receivables in one table.** An AG Grid dashboard reads invoice status live from PayPal: paid, sent, overdue and how late, with a suggested next step for each invoice. Choose an aging group to filter the table, then select invoices to prepare a focused reminder batch.
+3. **Receivables in one table.** An AG Grid dashboard reads invoice status live from PayPal: paid, sent, overdue and how late, with a suggested next step for each invoice. Quick views (All, Open, Overdue, On a plan, Paid), column filters (text, number, date), a **paid-progress bar** per invoice with tick marks for each plan installment, **pinned per-currency totals** for the rows in view (currencies are never added together), tooltips and **CSV export** of the current view. Choose an aging group to filter the table, then select invoices to prepare a focused reminder batch.
 4. **AI nudges, sent by PayPal.** For overdue invoices the AI writes a reminder in the tone that fits (friendly, firm or final notice) and in the client's original language. You approve it, and PayPal's `remind` endpoint emails it with the pay button.
+   **Payment plans instead of pressure.** For a late invoice, **Plan** asks the AI for 2–4 installments that add up exactly to the balance (first within 7 days, all within 60) and a message in the client's language. The server re-checks the math (exact sum, dates in order, within 90 days) and you can edit everything. On approval PayNudge updates the PayPal invoice to **accept partial payments** (minimum = the smallest installment), saves the schedule in the invoice's private memo in PayPal (so it survives restarts), and PayPal emails the client the plan with the same pay button. The dashboard then tracks the plan: "Plan 2/3 · Nov 28", "On plan" while the client keeps to it, and lateness counted from a missed installment, not the original due date. Tested on a real sandbox invoice: PayPal accepted the update (`allow_partial_payment: true`), and the Russian message listed 180 + 135 + 135 = 450 USD.
 5. **Collections review.** Select invoices in AG Grid, or leave all unselected to review the current aging group (or the full ledger if no group is selected). The app prepares up to eight overdue reminders, choosing a tone from how late each invoice is (1–7 days friendly, 8–21 firm, 21+ final notice). Recent PayPal contact is unchecked by default. Review and edit the batch before PayPal sends it. This is user-initiated, not a background scheduler; PayPal's last-sent timestamp is a contact indicator, not a complete reminder history.
 6. **Receivables copilot.** Ask "Who should I chase first?" The AI answers from your live PayPal data and proposes one-click actions.
 7. **Insights and a live agent feed.** A receivables aging chart (not due, 1–7, 8–21, 21+ days) and an activity feed of everything the AI and PayPal did: drafts, sent invoices, reminders, payments.
@@ -51,6 +53,8 @@ For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DE
 | Dashboard and copilot data | `GET /v2/invoicing/invoices` |
 | Invoice details for a reminder | `GET /v2/invoicing/invoices/{id}` |
 | Send the AI-written reminder | `POST /v2/invoicing/invoices/{id}/remind` |
+| Turn on installments for a payment plan | `PUT /v2/invoicing/invoices/{id}` with `configuration.partial_payment` and the plan in `detail.memo` |
+| Email the client the plan | `POST /v2/invoicing/invoices/{id}/remind` |
 | Payment updates (polling) | `GET /v2/invoicing/invoices` every 4–15 seconds |
 | Payment updates (webhook, see note) | Webhook `INVOICING.INVOICE.PAID` (also `CANCELLED`, `REFUNDED`) → `POST /api/paypal/webhook` |
 | Prove a webhook is genuine | `POST /v1/notifications/verify-webhook-signature` |
@@ -69,14 +73,15 @@ PayPal is the source of truth: PayNudge has no database. The AI's deal summary a
 
 ## How AI is used
 
-PayNudge runs on **Groq's free plan** with two open models:
+PayNudge runs on **Groq's free plan** with open models:
 
-- **GPT-OSS 120B** (`openai/gpt-oss-120b`, medium reasoning) does the thinking: invoice extraction, reminders and the copilot. Every call uses **strict structured output**, so the response is constrained to a JSON schema and the app can act on it safely.
+- **GPT-OSS 120B** (`openai/gpt-oss-120b`, medium reasoning) does the thinking: invoice extraction, reminders, payment plans and the copilot. Every call uses **strict structured output**, so the response is constrained to a JSON schema and the app can act on it safely. If an output misses the schema, the same model is asked once more, then `gpt-oss-20b`.
 - **Qwen 3.8 27B** (`qwen/qwen3.8-27b`) only reads screenshots: it transcribes the chat to text, and GPT-OSS then builds the invoice from that transcript.
+- **Whisper large v3 turbo** (`whisper-large-v3-turbo`) turns voice notes into text.
 
 The sample chats include English, Russian and Spanish. The model can resolve a relative payment date when its reference date is clear; dates and amounts always need human review.
 
-**Measured check:** on 16 hand-written client chats in English, Russian, Spanish and Kazakh (cancelled items, an unapproved quote, a price changed later, "$1.5k", hourly rates, a deposit already paid, a discount, yen, an email in a signature, missing email, explicit and unknown due dates), the live model got **16/16 chats fully correct** (total, currency, items, email, due date, required warnings), **18/18 line items carried a quote that really appears in the chat**, median **2.5 s** per draft. Full table: [docs/AI-EVAL.md](docs/AI-EVAL.md). Reproduce with `npm run evaluate-ai` while the app runs with AI credentials (consumes AI quota).
+**Measured check:** on 16 hand-written client chats in English, Russian, Spanish and Kazakh (cancelled items, an unapproved quote, a price changed later, "$1.5k", hourly rates, a deposit already paid, a discount, yen, an email in a signature, missing email, explicit and unknown due dates), the live model got **16/16 chats fully correct** (total, currency, items, email, due date, required warnings), **18/18 line items carried a quote that really appears in the chat**, median **1.9 s** per draft (latest run). Full table: [docs/AI-EVAL.md](docs/AI-EVAL.md). Reproduce with `npm run evaluate-ai` while the app runs with AI credentials (consumes AI quota).
 
 These are synthetic examples written by us, not real customer data: they show behaviour on known edge cases, not general accuracy. A person must still verify every draft, which is why every line item shows its source quote.
 
@@ -85,6 +90,8 @@ These are synthetic examples written by us, not real customer data: they show be
 | Invoice extraction | chat text and/or screenshots (vision) | client, line items, currency, due date, warnings, private summary |
 | Reminder writer | invoice facts, days overdue, chosen tone, original language | email subject and message for PayPal's reminder |
 | Receivables copilot | question plus live invoice list from PayPal | short answer and up to 3 proposed actions |
+| Voice note → text | recorded or uploaded audio (any language) | transcript the seller reviews before drafting |
+| Payment plan | late invoice, balance, days late, original language | 2–4 installments (re-checked by the server) and a message in the client's language |
 
 If the main model hits its free quota or returns output that fails the schema, the request is retried once on `openai/gpt-oss-20b`. AI endpoints are also rate-limited per IP to protect a public demo.
 
@@ -172,9 +179,9 @@ This is a hackathon prototype, and we prefer to say so plainly:
 ## Tools used
 
 - **PayPal Developer Platform:** Invoicing API v2 in the sandbox environment; webhook receiver with signature verification (implemented, not yet seen receiving a real sandbox event)
-- **Groq API** (free plan): GPT-OSS 120B extracts invoices, writes reminders and answers copilot questions with strict structured output. Qwen 3.8 27B transcribes chat screenshots. GPT-OSS 20B is the fallback.
+- **Groq API** (free plan): GPT-OSS 120B extracts invoices, writes reminders and payment plans, and answers copilot questions with strict structured output. Qwen 3.8 27B transcribes chat screenshots, Whisper large v3 turbo transcribes voice notes. GPT-OSS 20B is the fallback.
+- **AG Grid Community:** receivables table with quick views, column filters, progress cells, pinned per-currency totals, tooltips, row selection and CSV export
 - **Google Gemini API** (optional, `@google/genai` SDK): alternative provider
-- **AG Grid Community:** receivables table with sorting, search and pagination
 - **Render:** hosting
 - Node.js, Express, vanilla JavaScript
 

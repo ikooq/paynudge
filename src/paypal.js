@@ -116,6 +116,20 @@ export async function remindInvoice(id, { subject, note }) {
   });
 }
 
+// Full update (PUT): PayPal has no partial update for invoices, so we send the whole invoice back
+// without its read-only parts. Used to turn on partial payments for a payment plan.
+const READ_ONLY = ["status", "links", "due_amount", "gratuity", "payments", "refunds", "amount"];
+export async function updateInvoice(invoice) {
+  const body = structuredClone(invoice);
+  for (const key of READ_ONLY) delete body[key];
+  if (body.detail) delete body.detail.metadata;
+  return request(`/v2/invoicing/invoices/${encodeURIComponent(invoice.id)}?send_to_recipient=false&send_to_invoicer=false`, {
+    method: "PUT",
+    body,
+    headers: { Prefer: "return=representation", "PayPal-Request-Id": randomUUID() },
+  });
+}
+
 // Records an off-PayPal payment (used by the demo seed script to create a "paid" invoice).
 export async function recordPayment(id, { amount, currency, date, method = "BANK_TRANSFER", note }) {
   return request(`/v2/invoicing/invoices/${encodeURIComponent(id)}/payments`, {

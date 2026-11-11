@@ -104,6 +104,15 @@
             Add screenshot
             <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
           </label>
+          <button class="btn ghost" id="voiceBtn" type="button" hidden aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+            <span id="voiceLabel">Voice note</span>
+          </button>
+          <label class="btn ghost" id="audioUpload" hidden title="Upload a voice message (mp3, m4a, ogg, wav, webm)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12" /><circle cx="6" cy="18" r="3" /><circle cx="16" cy="16" r="3" /></svg>
+            Audio file
+            <input type="file" id="audioInput" accept="audio/*,.ogg,.m4a,.mp3,.wav,.webm,.flac" hidden />
+          </label>
           <button class="btn ghost" id="ocrBtn" type="button" hidden>Read screenshot locally</button>
           <button class="btn primary" id="extractBtn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" /></svg>
@@ -157,6 +166,19 @@
       </article>
 
       <article class="card grid-card">
+        <div class="grid-toolbar">
+          <div class="seg" id="statusFilters" role="group" aria-label="Show invoices">
+            <button type="button" data-status="all" aria-pressed="true">All</button>
+            <button type="button" data-status="open" aria-pressed="false">Open</button>
+            <button type="button" data-status="overdue" aria-pressed="false">Overdue</button>
+            <button type="button" data-status="plan" aria-pressed="false">On a plan</button>
+            <button type="button" data-status="paid" aria-pressed="false">Paid</button>
+          </div>
+          <button type="button" class="btn ghost small" id="exportCsv" title="Download the invoices in view as CSV">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+            Export CSV
+          </button>
+        </div>
         <p class="muted" id="gridGuidance" style="padding: 12px 16px; margin: 0">Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.</p>
         <div id="grid" class="grid"></div>
       </article>
@@ -226,6 +248,7 @@
       </label>
       <footer>
         <button class="btn ghost" type="button" id="regenBtn">Rewrite with AI</button>
+        <button class="btn ghost" type="button" id="nudgePlanBtn" title="Instead of a reminder, offer installments; PayPal accepts partial payments">Offer a payment plan</button>
         <span class="spacer"></span>
         <button class="btn primary" type="button" id="sendNudgeBtn">Send reminder via PayPal</button>
       </footer>
@@ -249,6 +272,37 @@
         <span class="muted" id="apHint">Nothing is sent until you approve.</span>
         <span class="spacer"></span>
         <button class="btn primary" type="button" id="apSend" disabled>Approve &amp; send via PayPal</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="planDialog" class="dialog wide">
+    <div class="ap">
+      <header>
+        <div>
+          <h3 id="planDialogTitle">Offer a payment plan</h3>
+          <p class="muted" id="planMeta"></p>
+        </div>
+        <button class="btn ghost icon" type="button" id="planClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <p class="plan-why muted" id="planWhy"></p>
+      <div class="plan-schedule" id="planSchedule"></div>
+      <p class="plan-check" id="planCheck"></p>
+      <label class="field">
+        <span>Subject</span>
+        <input id="planSubject" maxlength="200" />
+      </label>
+      <label class="field">
+        <span>Message <em class="muted">in the client's language · PayPal adds the “View and pay” button</em></span>
+        <textarea id="planNote" rows="7" maxlength="1000"></textarea>
+      </label>
+      <p class="muted plan-effect">On approval, PayPal will accept partial payments on this invoice (minimum: the smallest installment), the schedule is saved in the invoice's private memo in PayPal, and PayPal emails this message to the client.</p>
+      <footer>
+        <button class="btn ghost" type="button" id="planRegen">Ask AI again</button>
+        <span class="spacer"></span>
+        <button class="btn primary" type="button" id="planSend" disabled>Approve &amp; send via PayPal</button>
       </footer>
     </div>
   </dialog>

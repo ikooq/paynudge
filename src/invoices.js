@@ -134,8 +134,69 @@ function daysBetween(fromISO, toISO) {
   return Math.round((Date.parse(toISO) - Date.parse(fromISO)) / 86_400_000);
 }
 
-function nextAction(status, daysOverdue, daysUntilDue) {
+// --- Payment plans -------------------------------------------------------------------------------
+// A plan lives in the invoice's private memo in PayPal, so it survives restarts and redeploys:
+//   "Payment plan: 2026-11-15 500.00; 2026-12-01 500.00; 2026-12-15 500.00 USD"
+const PLAN_RE = /^Payment plan:\s*(.+?)\s+([A-Z]{3})\s*$/m;
+
+export function formatPlanLine(installments, currency) {
+  return `Payment plan: ${installments.map((i) => `${i.due_date} ${money(i.amount, currency)}`).join("; ")} ${currency}`;
+}
+
+export function parsePlan(memo) {
+  const m = PLAN_RE.exec(memo || "");
+  if (!m) return null;
+  const installments = m[1].split(";").map((part) => {
+    const [due_date, amount] = part.trim().split(/\s+/);
+    return { due_date, amount: Number(amount) };
+  }).filter((i) => /^\d{4}-\d{2}-\d{2}$/.test(i.due_date) && Number.isFinite(i.amount));
+  return installments.length ? { installments, currency: m[2] } : null;
+}
+
+// Where the client is in the plan: the next unpaid installment, given how much PayPal says is paid.
+export function planProgress(plan, paid, today = todayISO()) {
+  let cumulative = 0;
+  for (const [i, inst] of plan.installments.entries()) {
+    cumulative = round2(cumulative + inst.amount);
+    if (paid + 0.005 < cumulative) {
+      return { index: i, count: plan.installments.length, next: inst, behind: inst.due_date < today, remainingInNext: round2(cumulative - paid) };
+    }
+  }
+  return { index: plan.installments.length, count: plan.installments.length, next: null, behind: false, remainingInNext: 0 };
+}
+
+// Checks (and gently repairs) a proposed plan so the money adds up exactly.
+export function validatePlan(installments, due, currency, today = todayISO()) {
+  const bad = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
+  const digits = ZERO_DECIMAL.has(currency) ? 0 : 2;
+  const list = (installments || []).map((i) => ({ due_date: String(i.due_date || ""), amount: Number(i.amount) }));
+  if (list.length < 2 || list.length > 4) bad("A payment plan needs 2 to 4 installments.");
+  for (const i of list) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(i.due_date) || Number.isNaN(Date.parse(`${i.due_date}T00:00:00Z`))) bad("Every installment needs a valid date.");
+    if (!Number.isFinite(i.amount) || i.amount <= 0) bad("Every installment needs a positive amount.");
+  }
+  if (list[0].due_date < today) bad("The first installment cannot be in the past.");
+  for (let k = 1; k < list.length; k++) if (list[k].due_date <= list[k - 1].due_date) bad("Installment dates must be in order, one per date.");
+  if (daysBetween(today, list[list.length - 1].due_date) > 90) bad("Keep the whole plan within 90 days.");
+  const factor = 10 ** digits;
+  const rounded = list.map((i) => ({ ...i, amount: Math.round(i.amount * factor) / factor }));
+  const sum = rounded.reduce((s, i) => s + i.amount, 0);
+  const diff = Math.round((due - sum) * factor) / factor;
+  if (Math.abs(diff) > Math.max(1, due * 0.02)) bad(`Installments add up to ${sum.toFixed(digits)} ${currency}, but ${due.toFixed(digits)} ${currency} is due.`);
+  // Absorb rounding cents in the last installment so the plan equals the balance exactly.
+  rounded[rounded.length - 1].amount = Math.round((rounded[rounded.length - 1].amount + diff) * factor) / factor;
+  if (rounded[rounded.length - 1].amount <= 0) bad("The last installment must be positive.");
+  return rounded;
+}
+
+function nextAction(status, daysOverdue, daysUntilDue, progress) {
   if (PAID_STATUSES.has(status)) return { key: "done", label: "Paid" };
+  if (progress?.next) {
+    const n = progress.next;
+    return progress.behind
+      ? { key: "friendly", label: `Plan ${progress.index + 1}/${progress.count} late` }
+      : { key: "plan", label: `Plan ${progress.index + 1}/${progress.count} · ${n.due_date.slice(5)}` };
+  }
   if (status === "DRAFT") return { key: "send", label: "Send draft" };
   if (status === "CANCELLED" || status.includes("REFUNDED")) return { key: "none", label: "Closed" };
   if (daysOverdue > 21) return { key: "final", label: "Final notice" };
@@ -155,10 +216,14 @@ export function toRow(inv, today = todayISO()) {
   const isOpen = OPEN_STATUSES.has(status);
   const due = isOpen ? Number(inv.due_amount?.value ?? amount - paid) : 0;
   const dueDate = inv.detail?.payment_term?.due_date || inv.detail?.invoice_date || "";
-  const daysOverdue = isOpen && dueDate ? Math.max(0, daysBetween(dueDate, today)) : 0;
+  let daysOverdue = isOpen && dueDate ? Math.max(0, daysBetween(dueDate, today)) : 0;
   const daysUntilDue = isOpen && dueDate ? daysBetween(today, dueDate) : null;
   const memo = inv.detail?.memo || "";
   const lang = /Conversation language:\s*(.+)/.exec(memo)?.[1]?.trim() || "English";
+  const plan = isOpen ? parsePlan(memo) : null;
+  const progress = plan ? planProgress(plan, paid, today) : null;
+  // A client keeping to an agreed plan is not overdue; a missed installment is late from its own date.
+  if (progress) daysOverdue = progress.next ? Math.max(0, daysBetween(progress.next.due_date, today)) : 0;
 
   return {
     id: inv.id,
@@ -181,7 +246,9 @@ export function toRow(inv, today = todayISO()) {
     items: (inv.items || []).map((it) => `${it.quantity} × ${it.name}`).join(", "),
     memo: memo.replace(/^PayNudge memo:\s*/, "").split("\n")[0],
     language: lang,
-    nextAction: nextAction(status, daysOverdue, daysUntilDue),
+    plan: plan ? { ...plan, progress } : null,
+    partialAllowed: Boolean(inv.configuration?.partial_payment?.allow_partial_payment),
+    nextAction: nextAction(status, daysOverdue, daysUntilDue, progress),
   };
 }
 

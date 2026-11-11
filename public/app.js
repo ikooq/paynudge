@@ -13,6 +13,7 @@ const icon = {
   trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
 };
 
 const state = {
@@ -27,6 +28,7 @@ const state = {
   watchUntil: 0, // poll PayPal faster until this time (after an invoice is sent)
   seenActivity: null,
   agingBucket: null,
+  statusFilter: "all",
   planIds: [],
   pendingInvoice: null,
 };
@@ -136,8 +138,97 @@ async function loadStatus() {
   ];
   $("#statusChips").innerHTML = chips.join("");
   $("#dataNotice").textContent = s.ai.live
-    ? `Chats and screenshots are sent to ${s.ai.provider} for processing. Use test data in this shared demo.`
+    ? `Chats, screenshots and voice notes are sent to ${s.ai.provider} for processing. Use test data in this shared demo.`
     : "Demo mode uses local sample responses; no chat is sent to an AI provider.";
+  const voice = Boolean(s.ai.voice);
+  $("#voiceBtn").hidden = !voice || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder;
+  $("#audioUpload").hidden = !voice;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Voice note -> transcript -> invoice draft. The transcript goes into the chat box so the seller
+// can read and fix it, and line-item quotes are checked against it like any pasted chat.
+// ---------------------------------------------------------------------------------------------
+const voice = { recorder: null, chunks: [], started: 0, timer: null };
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function transcribeBlob(blob, label) {
+  if (blob.size > 10 * 1024 * 1024) return toast("Voice notes can be up to 10 MB.", "error");
+  const btn = $("#extractBtn");
+  btn.disabled = true;
+  $("#voiceLabel").textContent = "Transcribing…";
+  try {
+    const r = await api("/api/transcribe", { method: "POST", body: { media_type: blob.type || "audio/webm", data: await blobToBase64(blob) } });
+    const box = $("#chatInput");
+    const lang = r.language ? ` (${r.language.charAt(0).toUpperCase() + r.language.slice(1)})` : "";
+    box.value = `${box.value.trim() ? box.value.trim() + "\n\n" : ""}${label}${lang}: ${r.text}`;
+    toast(`Voice note transcribed${r.seconds ? ` (${r.seconds} s)` : ""}. Drafting the invoice…`);
+    btn.disabled = false;
+    extract();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    $("#voiceLabel").textContent = "Voice note";
+  }
+}
+
+async function toggleRecording() {
+  const btn = $("#voiceBtn");
+  if (voice.recorder?.state === "recording") {
+    voice.recorder.stop();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    return toast("Microphone access was blocked. You can upload an audio file instead.", "error");
+  }
+  const type = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+  voice.recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  voice.chunks = [];
+  voice.recorder.ondataavailable = (e) => e.data.size && voice.chunks.push(e.data);
+  voice.recorder.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(voice.timer);
+    btn.classList.remove("recording");
+    btn.setAttribute("aria-pressed", "false");
+    const blob = new Blob(voice.chunks, { type: (voice.recorder.mimeType || "audio/webm").split(";")[0] });
+    if (blob.size < 2000) {
+      $("#voiceLabel").textContent = "Voice note";
+      return toast("The recording is too short.", "error");
+    }
+    transcribeBlob(blob, "Voice note");
+  };
+  voice.recorder.start();
+  voice.started = Date.now();
+  btn.classList.add("recording");
+  btn.setAttribute("aria-pressed", "true");
+  const tick = () => {
+    const s = Math.floor((Date.now() - voice.started) / 1000);
+    $("#voiceLabel").textContent = `Stop · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    if (s >= 300) voice.recorder.stop(); // 5 minutes is plenty for an invoice
+  };
+  tick();
+  voice.timer = setInterval(tick, 500);
+}
+
+function setupVoice() {
+  $("#voiceBtn").addEventListener("click", toggleRecording);
+  $("#audioInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) transcribeBlob(file, "Voice message");
+  });
 }
 
 async function loadSamples() {
@@ -625,58 +716,115 @@ function cell(html) {
   return el.firstElementChild;
 }
 
+// Pinned bottom rows carry per-currency totals; cell renderers skip them.
+const isTotal = (p) => Boolean(p.node?.rowPinned);
+const statusLabel = (r) =>
+  r.daysOverdue > 0 ? ["bad", r.plan ? "Plan late" : "Overdue"]
+  : r.plan && r.due > 0 ? ["info", "On plan"]
+  : STATUS[r.status] || ["neutral", r.status];
+const isoDateFilter = {
+  comparator: (filterDate, value) => {
+    if (!value) return -1;
+    const d = Date.parse(`${value}T00:00:00Z`);
+    const f = Date.UTC(filterDate.getFullYear(), filterDate.getMonth(), filterDate.getDate());
+    return d === f ? 0 : d < f ? -1 : 1;
+  },
+};
+
 const columnDefs = [
   {
     headerName: "Client",
     field: "client",
     flex: 2,
-    minWidth: 210,
+    minWidth: 180,
+    filter: "agTextColumnFilter",
+    tooltipValueGetter: (p) => (isTotal(p) ? "" : [p.data.client, p.data.contact, p.data.email, p.data.items].filter(Boolean).join(" · ")),
     getQuickFilterText: (p) => `${p.data.client} ${p.data.items} ${p.data.email} ${p.data.number}`,
     cellRenderer: (p) =>
-      cell(`<div class="cell-client"><b>${esc(p.data.client)}</b><small>${esc(p.data.items || p.data.email || p.data.contact)}</small></div>`),
+      isTotal(p)
+        ? cell(`<div class="cell-client"><b>${esc(p.data.client)}</b><small>${esc(p.data.items)}</small></div>`)
+        : cell(`<div class="cell-client"><b>${esc(p.data.client)}</b><small>${esc(p.data.items || p.data.email || p.data.contact)}</small></div>`),
   },
-  { headerName: "Invoice", field: "number", width: 105, valueFormatter: (p) => (p.value ? `#${p.value}` : "—") },
-  { headerName: "Amount", field: "amount", width: 125, type: "rightAligned", valueFormatter: (p) => fmt(p.value, p.data.currency) },
-  { headerName: "Balance", field: "due", width: 125, type: "rightAligned", valueFormatter: (p) => fmt(p.value, p.data.currency) },
+  { headerName: "Invoice", field: "number", width: 92, valueFormatter: (p) => (isTotal(p) ? "" : p.value ? `#${p.value}` : "—") },
+  { headerName: "Amount", field: "amount", width: 115, type: "rightAligned", filter: "agNumberColumnFilter", valueFormatter: (p) => fmt(p.value, p.data.currency) },
+  { headerName: "Balance", field: "due", width: 115, type: "rightAligned", filter: "agNumberColumnFilter", valueFormatter: (p) => fmt(p.value, p.data.currency) },
+  {
+    headerName: "Paid",
+    colId: "progress",
+    width: 128,
+    valueGetter: (p) => (p.data.amount ? p.data.paid / p.data.amount : 0),
+    comparator: (a, b) => a - b,
+    tooltipValueGetter: (p) => (isTotal(p) ? "" : `${fmt(p.data.paid, p.data.currency)} of ${fmt(p.data.amount, p.data.currency)} paid${p.data.plan ? `\n${planTitle(p.data)}` : ""}`),
+    cellRenderer: (p) => {
+      const r = p.data;
+      const pct = Math.round(Math.min(1, r.amount ? r.paid / r.amount : 0) * 100);
+      // Plan installments appear as ticks on the bar, so progress through the plan is visible at a glance.
+      let ticks = "";
+      if (!isTotal(p) && r.plan && r.amount) {
+        // The plan covers the balance at the time it was made; anything paid before sits to its left.
+        const planTotal = r.plan.installments.reduce((s, i) => s + i.amount, 0);
+        let cum = r.amount - planTotal;
+        ticks = r.plan.installments.slice(0, -1).map((i) => {
+          cum += i.amount;
+          return `<i style="left:${Math.min(100, (cum / r.amount) * 100).toFixed(1)}%"></i>`;
+        }).join("");
+      }
+      return cell(`<div class="cell-progress" aria-label="${pct}% paid"><div class="bar ${pct >= 100 ? "full" : ""}"><span style="width:${pct}%"></span>${ticks}</div><small>${pct}%</small></div>`);
+    },
+  },
   {
     headerName: "Status",
     field: "status",
-    width: 130,
+    width: 122,
+    filter: "agTextColumnFilter",
+    filterValueGetter: (p) => statusLabel(p.data)[1],
     cellRenderer: (p) => {
-      const [kind, label] = p.data.daysOverdue > 0 ? ["bad", "Overdue"] : STATUS[p.value] || ["neutral", p.value];
+      if (isTotal(p)) return "";
+      const [kind, label] = statusLabel(p.data);
       return cell(`<div style="display:flex;align-items:center;height:100%"><span class="pill ${kind}">${esc(label)}</span></div>`);
     },
   },
   {
     headerName: "Due",
     field: "dueDate",
-    width: 140,
+    width: 122,
+    filter: "agDateColumnFilter",
+    filterParams: isoDateFilter,
     cellRenderer: (p) => {
+      if (isTotal(p)) return "";
       const r = p.data;
+      // On a payment plan, the date that matters is the next installment, not the original due date.
+      const date = r.plan?.progress?.next?.due_date || r.dueDate;
       let sub = "";
       if (r.daysOverdue > 0) sub = `<small class="bad">${r.daysOverdue} day${r.daysOverdue === 1 ? "" : "s"} late</small>`;
-      else if (r.due > 0 && r.dueDate) {
-        const days = Math.round((Date.parse(r.dueDate) - Date.parse(new Date().toISOString().slice(0, 10))) / 864e5);
-        sub = `<small class="muted">${days === 0 ? "due today" : `in ${days} day${days === 1 ? "" : "s"}`}</small>`;
+      else if (r.due > 0 && date) {
+        const days = Math.round((Date.parse(date) - Date.parse(new Date().toISOString().slice(0, 10))) / 864e5);
+        sub = `<small class="muted">${r.plan ? "next part " : ""}${days === 0 ? "due today" : `in ${days} day${days === 1 ? "" : "s"}`}</small>`;
       }
-      return cell(`<div class="cell-due"><span>${esc(fmtDate(r.dueDate)) || "—"}</span>${sub}</div>`);
+      return cell(`<div class="cell-due"><span>${esc(fmtDate(date)) || "—"}</span>${sub}</div>`);
     },
   },
   {
     headerName: "Next step",
     field: "nextAction.label",
     flex: 1,
-    minWidth: 220,
+    minWidth: 250,
     sortable: false,
     cellRenderer: (p) => {
+      if (isTotal(p)) return "";
       const r = p.data;
       const key = r.nextAction.key;
       const open = r.payerUrl
         ? `<a class="open-link" href="${esc(new URL(r.payerUrl, location.origin).href)}" target="_blank" rel="noopener" title="Open payment page">${icon.external}</a>`
         : "";
+      // A late invoice without a plan can get one; an invoice on a plan shows where it stands.
+      const canPlan = r.due > 0 && r.daysOverdue > 0 && !r.plan && ["SENT", "UNPAID", "PARTIALLY_PAID"].includes(r.status);
+      const planBtn = canPlan ? `<button class="nudge-btn plan" data-plan title="AI proposes installments; PayPal accepts partial payments">${icon.calendar} Plan</button>` : "";
       let main = "";
       if (["friendly", "firm", "final"].includes(key)) {
         main = `<button class="nudge-btn ${key}" data-tone="${key}">${icon.bell} ${esc(r.nextAction.label)}</button>`;
+      } else if (key === "plan") {
+        main = `<span class="pill info" title="${esc(planTitle(r))}">${icon.calendar} ${esc(r.nextAction.label)}</span>`;
       } else if (key === "wait") {
         main = `<button class="nudge-btn" data-tone="friendly">${icon.bell} Nudge</button><span class="muted" style="font-size:12.5px">${esc(r.nextAction.label)}</span>`;
       } else if (key === "done") {
@@ -684,8 +832,9 @@ const columnDefs = [
       } else {
         main = `<span class="muted">${esc(r.nextAction.label)}</span>`;
       }
-      const el = cell(`<div class="cell-actions">${main}${open}</div>`);
+      const el = cell(`<div class="cell-actions">${main}${planBtn}${open}</div>`);
       el.querySelector("[data-tone]")?.addEventListener("click", () => openNudge(r, el.querySelector("[data-tone]").dataset.tone));
+      el.querySelector("[data-plan]")?.addEventListener("click", () => openPlan(r));
       return el;
     },
   },
@@ -721,8 +870,13 @@ function setupGrid() {
     columnDefs,
     rowData: [],
     rowSelection: { mode: "multiRow", enableClickSelection: false },
-    isExternalFilterPresent: () => state.agingBucket !== null,
-    doesExternalFilterPass: (node) => node.data.due > 0 && BUCKETS[state.agingBucket].test(node.data),
+    isExternalFilterPresent: () => state.agingBucket !== null || state.statusFilter !== "all",
+    doesExternalFilterPass: (node) =>
+      (state.agingBucket === null || (node.data.due > 0 && BUCKETS[state.agingBucket].test(node.data))) &&
+      STATUS_FILTERS[state.statusFilter](node.data),
+    onFilterChanged: () => updateTotals(),
+    onRowDataUpdated: () => updateTotals(),
+    tooltipShowDelay: 400,
     theme: gridTheme(),
     rowHeight: 60,
     headerHeight: 44,
@@ -742,6 +896,14 @@ function setupGrid() {
   );
   $("#gridSearch").addEventListener("input", (e) => state.grid.setGridOption("quickFilterText", e.target.value));
   $("#refreshBtn").addEventListener("click", () => loadInvoices({ announce: true }));
+  $("#statusFilters").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-status]");
+    if (!b) return;
+    state.statusFilter = b.dataset.status;
+    $$("#statusFilters button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    state.grid.onFilterChanged();
+  });
+  $("#exportCsv").addEventListener("click", exportCsv);
   $("#agingChart").addEventListener("click", (e) => {
     const button = e.target.closest("button[data-bucket]");
     if (!button) return;
@@ -785,6 +947,55 @@ function setupTabs() {
     if (e.key === "ArrowRight") selectTab(TABS[(i + 1) % TABS.length], true);
     else if (e.key === "ArrowLeft") selectTab(TABS[(i + TABS.length - 1) % TABS.length], true);
   });
+}
+
+// Quick status views over the same PayPal data.
+const STATUS_FILTERS = {
+  all: () => true,
+  open: (r) => r.due > 0,
+  overdue: (r) => r.due > 0 && r.daysOverdue > 0,
+  plan: (r) => Boolean(r.plan),
+  paid: (r) => ["PAID", "MARKED_AS_PAID", "PAID_EXTERNAL"].includes(r.status),
+};
+
+// One pinned total row per currency for the rows that pass the current filters (never mixes currencies).
+function updateTotals() {
+  if (!state.grid) return;
+  const totals = {};
+  state.grid.forEachNodeAfterFilter((n) => {
+    if (!n.data || n.rowPinned) return;
+    const t = (totals[n.data.currency] ||= { amount: 0, due: 0, paid: 0, count: 0 });
+    t.amount += n.data.amount;
+    t.due += n.data.due;
+    t.paid += n.data.paid;
+    t.count += 1;
+  });
+  const rows = Object.entries(totals).map(([currency, t]) => ({
+    id: `total-${currency}`,
+    client: `Total · ${currency}`,
+    items: `${t.count} invoice${t.count === 1 ? "" : "s"} in view`,
+    currency,
+    amount: Math.round(t.amount * 100) / 100,
+    due: Math.round(t.due * 100) / 100,
+    paid: Math.round(t.paid * 100) / 100,
+  }));
+  state.grid.setGridOption("pinnedBottomRowData", rows);
+}
+
+function exportCsv() {
+  state.grid.exportDataAsCsv({
+    fileName: `paynudge-receivables-${new Date().toISOString().slice(0, 10)}.csv`,
+    columnKeys: ["client", "number", "amount", "due", "progress", "status", "dueDate"],
+    skipPinnedBottom: true,
+    processCellCallback: (p) => {
+      const id = p.column.getColId();
+      if (id === "progress") return `${Math.round((p.value || 0) * 100)}%`;
+      if (id === "status") return statusLabel(p.node.data)[1];
+      if (id === "amount" || id === "due") return `${p.value} ${p.node.data.currency}`;
+      return p.value;
+    },
+  });
+  toast("Exported the invoices in view to CSV");
 }
 
 function renderKpis(k) {
@@ -1078,6 +1289,143 @@ function setupAutopilot() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Payment plan agent: the AI proposes installments + a message in the client's language, the
+// seller edits and approves, PayPal accepts partial payments and emails the plan.
+// ---------------------------------------------------------------------------------------------
+const plan = { row: null, installments: [], request: 0 };
+
+function planTitle(r) {
+  if (!r.plan) return "";
+  return r.plan.installments.map((i, k) => `${k + 1}. ${i.due_date}: ${fmt(i.amount, r.currency)}`).join("\n") + `\nPaid so far: ${fmt(r.paid, r.currency)}`;
+}
+
+function renderPlanSchedule() {
+  const r = plan.row;
+  $("#planSchedule").innerHTML = plan.installments.length
+    ? `<div class="plan-row plan-head"><span>#</span><span>Due date</span><span>Amount (${esc(r.currency)})</span><span></span></div>` +
+      plan.installments
+        .map(
+          (i, k) => `<div class="plan-row">
+            <span class="plan-rank">${k + 1}</span>
+            <input type="date" data-k="${k}" data-f="due_date" value="${esc(i.due_date)}" aria-label="Installment ${k + 1} date">
+            <input type="number" min="0" step="0.01" class="num" data-k="${k}" data-f="amount" value="${esc(i.amount)}" aria-label="Installment ${k + 1} amount">
+            <button type="button" class="remove" data-remove-inst="${k}" aria-label="Remove installment" ${plan.installments.length <= 2 ? "disabled" : ""}>${icon.trash}</button>
+          </div>`,
+        )
+        .join("") +
+      (plan.installments.length < 4 ? '<button type="button" class="add-line" id="planAdd">+ Add installment</button>' : "")
+    : '<div class="skeleton tall"></div>';
+  checkPlan();
+}
+
+// Live check mirrors the server rule: 2–4 parts, dates in order, sum equals the balance.
+function checkPlan() {
+  const r = plan.row;
+  const list = plan.installments;
+  const sum = list.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const diff = Math.round((r.due - sum) * 100) / 100;
+  const ordered = list.every((i, k) => i.due_date && (k === 0 || i.due_date > list[k - 1].due_date));
+  const today = new Date().toISOString().slice(0, 10);
+  let msg = "";
+  if (list.length < 2) msg = "Add at least 2 installments.";
+  else if (!ordered) msg = "Dates must be in order, one installment per date.";
+  else if (list[0].due_date < today) msg = "The first installment cannot be in the past.";
+  else if (Math.abs(diff) > 0.009) msg = `Installments add up to ${fmt(sum, r.currency)}; the balance is ${fmt(r.due, r.currency)} (${diff > 0 ? "missing" : "over by"} ${fmt(Math.abs(diff), r.currency)}).`;
+  const ok = !msg && list.length;
+  $("#planCheck").className = `plan-check ${ok ? "ok" : "bad"}`;
+  $("#planCheck").textContent = ok ? `✓ ${list.length} installments add up exactly to ${fmt(r.due, r.currency)}.` : msg;
+  $("#planSend").disabled = !ok || !$("#planSubject").value.trim() || !$("#planNote").value.trim();
+}
+
+async function draftPlan() {
+  const id = ++plan.request;
+  plan.installments = [];
+  renderPlanSchedule();
+  $("#planWhy").textContent = "The AI is drafting a plan…";
+  $("#planSubject").value = "";
+  $("#planNote").value = "";
+  $("#planNote").placeholder = "The AI is writing the message…";
+  try {
+    const p = await api(`/api/invoices/${encodeURIComponent(plan.row.id)}/plan-draft`, { method: "POST", body: {} });
+    if (id !== plan.request) return;
+    plan.installments = p.installments;
+    $("#planWhy").textContent = [p.rationale, p.adjusted].filter(Boolean).join(" ");
+    $("#planSubject").value = p.subject;
+    $("#planNote").value = p.note;
+    renderPlanSchedule();
+  } catch (err) {
+    if (id !== plan.request) return;
+    $("#planWhy").textContent = err.message;
+    plan.installments = [];
+    renderPlanSchedule();
+  } finally {
+    if (id === plan.request) $("#planNote").placeholder = "";
+  }
+}
+
+function openPlan(row) {
+  plan.row = row;
+  $("#planDialogTitle").textContent = `Payment plan for ${row.client}`;
+  $("#planMeta").textContent = `Invoice #${row.number} · ${fmt(row.due, row.currency)} due · ${row.daysOverdue} days late · message in ${row.language}`;
+  if ($("#nudgeDialog").open) $("#nudgeDialog").close();
+  $("#planDialog").showModal();
+  draftPlan();
+}
+
+async function sendPlan() {
+  const r = plan.row;
+  const btn = $("#planSend");
+  btn.disabled = true;
+  btn.textContent = "Updating PayPal…";
+  const body = { installments: plan.installments.map((i) => ({ due_date: i.due_date, amount: Number(i.amount) })), subject: $("#planSubject").value, note: $("#planNote").value };
+  const path = `/api/invoices/${encodeURIComponent(r.id)}/plan`;
+  try {
+    try {
+      await api(path, { method: "POST", body });
+    } catch (err) {
+      if (!err.repeatConfirmationRequired || !confirm(`${err.message}\n\nSend the payment plan to ${r.client} anyway?`)) throw err;
+      await api(path, { method: "POST", body: { ...body, confirmRepeat: true } });
+    }
+    $("#planDialog").close();
+    toast(`Payment plan sent via PayPal. ${r.client} can now pay in ${body.installments.length} parts.`);
+    confetti();
+    loadInvoices();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.textContent = "Approve & send via PayPal";
+    checkPlan();
+  }
+}
+
+function setupPlan() {
+  $("#planClose").addEventListener("click", () => $("#planDialog").close());
+  $("#planRegen").addEventListener("click", draftPlan);
+  $("#planSend").addEventListener("click", sendPlan);
+  $("#planSchedule").addEventListener("input", (e) => {
+    const { k, f } = e.target.dataset;
+    if (k === undefined) return;
+    plan.installments[k][f] = f === "amount" ? Number(e.target.value) : e.target.value;
+    checkPlan();
+  });
+  $("#planSchedule").addEventListener("click", (e) => {
+    const rm = e.target.closest("[data-remove-inst]");
+    if (rm) {
+      plan.installments.splice(Number(rm.dataset.removeInst), 1);
+      renderPlanSchedule();
+    } else if (e.target.closest("#planAdd")) {
+      const last = plan.installments.at(-1);
+      const d = new Date(`${last?.due_date || new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 14);
+      plan.installments.push({ due_date: d.toISOString().slice(0, 10), amount: 0 });
+      renderPlanSchedule();
+    }
+  });
+  for (const id of ["#planSubject", "#planNote"]) $(id).addEventListener("input", checkPlan);
+  $("#nudgePlanBtn")?.addEventListener("click", () => state.nudge?.row && openPlan(state.nudge.row));
+}
+
+// ---------------------------------------------------------------------------------------------
 // Copilot
 // ---------------------------------------------------------------------------------------------
 const SUGGESTIONS = ["Who should I chase first?", "How much is overdue, by currency?", "Which invoices are due this week?"];
@@ -1217,6 +1565,8 @@ setupNudge();
 setupAutopilot();
 setupGrid();
 setupTabs();
+setupVoice();
+setupPlan();
 $("#planBody").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-plan-id]");
   const row = button && state.rows.find((r) => r.id === button.dataset.planId);

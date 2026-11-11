@@ -3,8 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { config } from "./src/config.js";
-import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
-import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
+import { extractDraft, draftReminder, askCopilot, transcribeAudio, audioSupported, proposePaymentPlan, AIError } from "./src/ai.js";
+import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO, validatePlan, formatPlanLine, money } from "./src/invoices.js";
 import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
@@ -61,7 +61,7 @@ async function allRows() {
 app.get("/api/status", (req, res) => {
   res.json({
     paypal: { live: config.paypal.live, env: config.paypal.env, webhooks: Boolean(config.paypal.live && config.paypal.webhookId), lastWebhookAt },
-    ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name },
+    ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name, voice: !config.ai.live || audioSupported() },
     business: config.business.name,
     build: process.env.RENDER_GIT_COMMIT || null,
   });
@@ -87,6 +87,13 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
   );
   res.json(draft);
+});
+
+// 1b) Voice note -> text (Whisper). The seller sees the transcript before anything is drafted.
+app.post("/api/transcribe", aiLimit, async (req, res) => {
+  const result = await transcribeAudio({ media_type: req.body?.media_type, data: req.body?.data });
+  logEvent("ai", `AI transcribed a ${result.seconds ? `${result.seconds}-second ` : ""}voice note${result.language ? ` in ${result.language}` : ""}`);
+  res.json(result);
 });
 
 // 2) Draft -> PayPal invoice, created and sent through the Invoicing API
@@ -233,6 +240,83 @@ app.post("/api/invoices/:id/remind", writeLimit, async (req, res) => {
   res.json({ ok: true });
 });
 
+// 5b) Payment plan: the AI proposes a schedule and a message in the client's language.
+app.post("/api/invoices/:id/plan-draft", aiLimit, async (req, res) => {
+  const row = toRow(await paypal.getInvoice(req.params.id));
+  if (row.due <= 0) return res.status(409).json({ error: "This invoice has no outstanding balance." });
+  const raw = await proposePaymentPlan({ row });
+  let installments;
+  try {
+    installments = validatePlan(raw.installments, row.due, row.currency);
+  } catch (err) {
+    return res.status(502).json({ error: `The AI proposed a plan that does not add up (${err.message}) Try again or edit it.` });
+  }
+  const changed = installments.some((inst, i) => Math.abs(inst.amount - Number(raw.installments[i]?.amount)) > 0.001);
+  logEvent("ai", `AI proposed a ${installments.length}-part payment plan in ${row.language} for ${row.client} (#${row.number})`, { invoiceId: row.id });
+  res.json({
+    installments,
+    rationale: raw.rationale,
+    subject: raw.subject,
+    note: raw.note,
+    adjusted: changed ? "Amounts were adjusted by a few cents so the plan equals the balance exactly. Check the message matches." : "",
+    row,
+  });
+});
+
+// 5c) Approve the plan: PayPal accepts partial payments on the same invoice, the schedule is saved
+// in the invoice's private memo (so it survives restarts), and PayPal emails the client the plan.
+app.post("/api/invoices/:id/plan", writeLimit, async (req, res) => {
+  const id = req.params.id;
+  const subject = String(req.body?.subject || "").trim().slice(0, 200);
+  const note = String(req.body?.note || "").trim().slice(0, 1000);
+  if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });
+  if (reminderLocks.has(id)) return res.status(409).json({ error: "A message is already being sent for this invoice." });
+  reminderLocks.add(id);
+  let row;
+  try {
+    const invoice = await paypal.getInvoice(id);
+    row = toRow(invoice);
+    if (row.due <= 0) return res.status(409).json({ error: "This invoice no longer has an outstanding balance." });
+    if (!["SENT", "UNPAID", "PARTIALLY_PAID"].includes(row.status)) return res.status(409).json({ error: `A plan can only be offered on a sent, unpaid invoice (status ${row.status}).` });
+    const installments = validatePlan(req.body?.installments, row.due, row.currency);
+    const previous = reminderHistory(id);
+    if (previous && (previous.status !== "sent" || Date.now() - Date.parse(previous.at) < 48 * 3600_000) && req.body?.confirmRepeat !== true) {
+      return res.status(409).json({ error: "This client was contacted recently or a delivery is unconfirmed. Review PayPal before sending a plan.", repeatConfirmationRequired: true });
+    }
+
+    // Keep the memo within PayPal's 500 characters: replace any old plan line, shorten the summary if needed.
+    const planLine = formatPlanLine(installments, row.currency);
+    const lines = String(invoice.detail?.memo || "").split("\n").filter((l) => l.trim() && !/^Payment plan:/.test(l));
+    while (lines.length && [...lines, planLine].join("\n").length > 500) {
+      const over = [...lines, planLine].join("\n").length - 500;
+      lines[0] = lines[0].length > over + 20 ? lines[0].slice(0, lines[0].length - over - 1) + "…" : "";
+      if (!lines[0]) lines.shift();
+    }
+    const smallest = Math.min(...installments.map((i) => i.amount));
+    await paypal.updateInvoice({
+      ...invoice,
+      detail: { ...invoice.detail, memo: [...lines, planLine].join("\n") },
+      configuration: {
+        ...invoice.configuration,
+        // The minimum is the smallest installment, so every part of the plan can be paid with the same link.
+        partial_payment: { allow_partial_payment: true, minimum_amount_due: { currency_code: row.currency, value: money(smallest, row.currency) } },
+      },
+    });
+
+    await recordReminder(id, "pending");
+    await paypal.remindInvoice(id, { subject, note });
+    await recordReminder(id, "sent");
+    logEvent(
+      "agent",
+      `Payment plan sent to ${row.client} for #${row.number}: ${installments.map((i) => `${i.due_date.slice(5)} ${money(i.amount, row.currency)}`).join(", ")} ${row.currency}. PayPal now accepts partial payments`,
+      { invoiceId: id },
+    );
+  } finally {
+    reminderLocks.delete(id);
+  }
+  res.json({ ok: true, row: toRow(await paypal.getInvoice(id)) });
+});
+
 // 6) Copilot: questions about receivables, answered from live PayPal data
 app.post("/api/copilot", aiLimit, async (req, res) => {
   const question = String(req.body?.question || "").trim().slice(0, 500);
@@ -259,10 +343,12 @@ if (!config.paypal.live) {
 main{background:#fff;border-radius:16px;padding:28px;max-width:420px;width:100%;box-shadow:0 10px 30px #0001}button{width:100%;padding:12px;border:0;border-radius:10px;background:#14171f;color:#fff;font-size:16px;cursor:pointer}
 small{color:#666}</style><main><small>DEMO MODE: this page stands in for PayPal's invoice page</small><h2>Invoice #${row.number}</h2>
 <p>${row.client}<br>${row.items}</p><h1>${row.due.toFixed(2)} ${row.currency}</h1>
-${row.due > 0 ? `<form method="post"><button>Simulate payment</button></form>` : "<p><b>Paid. Thank you!</b></p>"}</main>`);
+${inv.plan?.progress?.next ? `<p>Payment plan: part ${inv.plan.progress.index + 1} of ${inv.plan.progress.count}, ${inv.plan.progress.remainingInNext.toFixed(2)} ${row.currency} by ${esc(inv.plan.progress.next.due_date)}</p><form method="post"><input type="hidden" name="amount" value="${inv.plan.progress.remainingInNext}"><button>Simulate paying this part</button></form><p></p>` : ""}
+${row.due > 0 ? `<form method="post"><button>Simulate full payment</button></form>` : "<p><b>Paid. Thank you!</b></p>"}</main>`);
   });
-  app.post("/demo-pay/:id", async (req, res) => {
-    await paypal.markPaid(req.params.id);
+  app.post("/demo-pay/:id", express.urlencoded({ extended: false }), async (req, res) => {
+    const amount = req.body?.amount ? Number(req.body.amount) : undefined;
+    await paypal.markPaid(req.params.id, amount);
     res.redirect(`/demo-pay/${req.params.id}`);
   });
 }

@@ -79,12 +79,30 @@ export async function remindInvoice(id) {
   inv.detail.metadata.last_sent_time = new Date().toISOString();
 }
 
-export async function markPaid(id) {
+// amount omitted = pay everything that is still due (a partial payment needs allow_partial_payment).
+export async function markPaid(id, amount) {
   const inv = invoices.get(id);
   if (!inv) throw Object.assign(new Error("Invoice not found"), { status: 404 });
-  inv.status = "PAID";
-  inv.payments = { paid_amount: { ...inv.amount } };
-  inv.due_amount = { currency_code: inv.amount.currency_code, value: "0.00" };
+  const currency = inv.amount.currency_code;
+  const total = Number(inv.amount.value);
+  const already = Number(inv.payments?.paid_amount?.value || 0);
+  const pay = amount === undefined ? total - already : Math.min(Number(amount), total - already);
+  if (amount !== undefined && !inv.configuration?.partial_payment?.allow_partial_payment) {
+    throw Object.assign(new Error("This invoice does not accept partial payments"), { status: 400 });
+  }
+  const paid = Math.round((already + pay) * 100) / 100;
+  inv.payments = { paid_amount: { currency_code: currency, value: paid.toFixed(2) } };
+  inv.due_amount = { currency_code: currency, value: Math.max(0, total - paid).toFixed(2) };
+  inv.status = total - paid < 0.005 ? "PAID" : "PARTIALLY_PAID";
+}
+
+// Mirrors PayPal's full update (PUT): replaces the editable parts of the invoice.
+export async function updateInvoice(body) {
+  const inv = invoices.get(body.id);
+  if (!inv) throw Object.assign(new Error("Invoice not found"), { status: 404 });
+  inv.detail = { ...inv.detail, ...body.detail, metadata: inv.detail.metadata };
+  inv.configuration = structuredClone(body.configuration || {});
+  return structuredClone(inv);
 }
 
 export async function ping() {
