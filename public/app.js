@@ -1336,11 +1336,15 @@ function checkPlan() {
   const diff = Math.round((r.due - sum) * 100) / 100;
   const ordered = list.every((i, k) => i.due_date && (k === 0 || i.due_date > list[k - 1].due_date));
   const today = new Date().toISOString().slice(0, 10);
+  const decimals = ["JPY", "HUF", "TWD"].includes(r.currency) ? 0 : 2;
+  $("#planMessagePreview").textContent = list.map((i) => `${i.due_date || "—"}: ${Number(i.amount || 0).toFixed(decimals)} ${r.currency}`).join("\n");
   let msg = "";
   if (list.length < 2) msg = "Add at least 2 installments.";
   else if (!ordered) msg = "Dates must be in order, one installment per date.";
   else if (list[0].due_date < today) msg = "The first installment cannot be in the past.";
+  else if (list.some((i) => !Number.isFinite(Number(i.amount)) || Number(i.amount) <= 0)) msg = "Each installment must have a positive amount.";
   else if (Math.abs(diff) > 0.009) msg = `Installments add up to ${fmt(sum, r.currency)}; the balance is ${fmt(r.due, r.currency)} (${diff > 0 ? "missing" : "over by"} ${fmt(Math.abs(diff), r.currency)}).`;
+  else if (/\p{N}/u.test($("#planNote").value)) msg = "Remove numbers from the introduction; the exact schedule is added automatically.";
   const ok = !msg && list.length;
   $("#planCheck").className = `plan-check ${ok ? "ok" : "bad"}`;
   $("#planCheck").textContent = ok ? `✓ ${list.length} installments add up exactly to ${fmt(r.due, r.currency)}.` : msg;

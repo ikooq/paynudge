@@ -304,10 +304,11 @@
         <input id="planSubject" maxlength="200" />
       </label>
       <label class="field">
-        <span>Message <em class="muted">in the client's language · PayPal adds the “View and pay” button</em></span>
+        <span>Message introduction <em class="muted">in the client's language, without dates or numbers · the schedule is added below</em></span>
         <textarea id="planNote" rows="7" maxlength="1000"></textarea>
       </label>
-      <p class="muted plan-effect">On approval, PayPal will accept partial payments on this invoice (minimum: the smallest installment), the schedule is saved in the invoice's private memo in PayPal, and PayPal emails this message to the client.</p>
+      <label class="field"><span>Exact schedule appended to the message</span><pre id="planMessagePreview" class="plan-effect" aria-live="polite"></pre></label>
+      <p class="muted plan-effect">On approval, PayPal accepts partial payments and emails this proposal. The original invoice remains overdue until you record the client's explicit agreement.</p>
       <footer>
         <button class="btn ghost" type="button" id="planRegen">Ask AI again</button>
         <span class="spacer"></span>

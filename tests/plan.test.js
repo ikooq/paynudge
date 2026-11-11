@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validatePlan, formatPlanLine, parsePlan, planProgress, toRow } from "../src/invoices.js";
+import { validatePlan, formatPlanLine, composePlanMessage, parsePlan, planProgress, toRow } from "../src/invoices.js";
 
 const today = "2026-11-11";
 
@@ -19,6 +19,16 @@ test("rounding cents go into the last installment so the plan equals the balance
   const plan = validatePlan([{ due_date: "2026-11-15", amount: 333.33 }, { due_date: "2026-11-29", amount: 333.33 }, { due_date: "2026-12-13", amount: 333.33 }], 1000, "USD", today);
   assert.equal(plan[2].amount, 333.34);
   assert.equal(Math.round(plan.reduce((s, i) => s + i.amount, 0) * 100) / 100, 1000);
+});
+
+test("the emailed schedule comes from the approved installments", () => {
+  const items = [{ due_date: "2026-11-20", amount: 600 }, { due_date: "2026-12-01", amount: 400 }];
+  const message = composePlanMessage("Here is a proposed payment schedule.", items, "USD");
+  assert.match(message, /2026-11-20: 600\.00 USD/);
+  assert.match(message, /2026-12-01: 400\.00 USD/);
+  assert.throws(() => composePlanMessage("Pay 700 first.", items, "USD"), /Remove numbers/);
+  assert.throws(() => composePlanMessage("", items, "USD"), /introduction/);
+  assert.throws(() => validatePlan([{ due_date: "2026-11-20", amount: 50 }, { due_date: "2026-12-01", amount: 49 }], 100, "USD", today), /add up/);
 });
 
 test("the plan survives a round trip through the PayPal memo and tracks progress", () => {

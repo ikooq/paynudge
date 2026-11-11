@@ -425,7 +425,7 @@ export async function proposePaymentPlan({ row }) {
   if (!config.ai.live) return demoPlan(row);
   const system = `You help ${config.business.name}, a freelancer, recover a late invoice by offering the client a payment plan instead of more pressure.
 Propose 2 to 4 installments that add up EXACTLY to the amount due. The first installment is due within 7 days of today and should be the largest or equal share (at least 30% of the balance); the whole plan ends within 60 days; dates strictly increase; prefer round amounts. Use more installments for larger balances or longer delays, fewer for small ones.
-Then write the message PayPal will email with the invoice's "View and pay" button: in the language the client used in the original conversation, warm and respectful, no blame. It must list each installment with date and amount, say that the invoice now accepts partial payments so each installment can be paid with the same PayPal link, and thank them. Subject at most 70 characters; note at most 600 characters, plain text; sign as ${config.business.name}. Never include links or bank details. The rationale is for the seller, in English.`;
+Then write a short, warm introduction for the client in their language, without any numbers, dates, amounts or installment counts. Say that partial payments can use the same PayPal invoice link, and thank them. The application appends the exact approved schedule, so do not include a schedule, amounts, dates, invoice numbers or numeric characters in the note. Subject at most 70 characters; note at most 500 characters, plain text; sign as ${config.business.name}. Never include links or bank details. The rationale is for the seller, in English.`;
   const facts = {
     client: row.client,
     contact: row.contact,
@@ -555,12 +555,11 @@ function demoPlan(row) {
   const step = Math.floor((row.due / n) * 100) / 100;
   const installments = Array.from({ length: n }, (_, i) => ({ due_date: shift(3 + i * 14), amount: i === n - 1 ? Math.round((row.due - step * (n - 1)) * 100) / 100 : step }));
   const name = row.contact?.split(" ")[0] || "there";
-  const lines = installments.map((i) => `${i.due_date}: ${i.amount.toFixed(2)} ${row.currency}`).join("\n");
   return {
     installments,
     rationale: `Demo mode: ${n} equal installments over about ${(n - 1) * 2} weeks for a ${row.daysOverdue}-day-late balance.`,
     subject: `A payment plan for invoice #${row.number}`,
-    note: `Hi ${name}, to make invoice #${row.number} easier, you can pay it in ${n} parts:\n${lines}\nThe invoice now accepts partial payments, so you can use the same PayPal link for each part. Thank you! — ${config.business.name}`,
+    note: `Hi ${name}, to make payment easier, we can offer a schedule. You can use the same PayPal invoice link for each partial payment. Thank you! — ${config.business.name}`,
   };
 }
 

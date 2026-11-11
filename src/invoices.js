@@ -143,6 +143,17 @@ export function formatPlanLine(installments, currency) {
   return `Payment plan: ${installments.map((i) => `${i.due_date} ${money(i.amount, currency)}`).join("; ")} ${currency}`;
 }
 
+// Keep the schedule out of model-generated prose: append the approved numbers ourselves.
+export function composePlanMessage(intro, installments, currency) {
+  const text = String(intro || "").trim();
+  if (!text) throw Object.assign(new Error("A message introduction is required."), { status: 400 });
+  if (/\p{N}/u.test(text)) throw Object.assign(new Error("Remove numbers from the message introduction; the approved dates and amounts are added automatically."), { status: 400 });
+  const schedule = installments.map((item) => `${item.due_date}: ${money(item.amount, currency)} ${currency}`).join("\n");
+  const message = `${text}\n\n${schedule}`;
+  if (message.length > 1000) throw Object.assign(new Error("The message and schedule must fit within 1000 characters."), { status: 400 });
+  return message;
+}
+
 export function parsePlan(memo) {
   const m = PLAN_RE.exec(memo || "");
   if (!m) return null;
@@ -185,7 +196,7 @@ export function validatePlan(installments, due, currency, today = todayISO()) {
   const rounded = list.map((i) => ({ ...i, amount: Math.round(i.amount * factor) / factor }));
   const sum = rounded.reduce((s, i) => s + i.amount, 0);
   const diff = Math.round((due - sum) * factor) / factor;
-  if (Math.abs(diff) > Math.max(1, due * 0.02)) bad(`Installments add up to ${sum.toFixed(digits)} ${currency}, but ${due.toFixed(digits)} ${currency} is due.`);
+  if (Math.abs(diff) > Math.max(1, rounded.length - 1) / factor + 1e-9) bad(`Installments add up to ${sum.toFixed(digits)} ${currency}, but ${due.toFixed(digits)} ${currency} is due.`);
   // Absorb rounding cents in the last installment so the plan equals the balance exactly.
   rounded[rounded.length - 1].amount = Math.round((rounded[rounded.length - 1].amount + diff) * factor) / factor;
   if (rounded[rounded.length - 1].amount <= 0) bad("The last installment must be positive.");

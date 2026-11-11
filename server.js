@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { config } from "./src/config.js";
 import { extractDraft, draftReminder, askCopilot, transcribeAudio, audioSupported, proposePaymentPlan, AIError } from "./src/ai.js";
-import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO, validatePlan, formatPlanLine, money } from "./src/invoices.js";
+import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO, validatePlan, formatPlanLine, composePlanMessage, money } from "./src/invoices.js";
 import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
@@ -279,6 +279,7 @@ app.post("/api/invoices/:id/plan", writeLimit, async (req, res) => {
     if (row.due <= 0) return res.status(409).json({ error: "This invoice no longer has an outstanding balance." });
     if (!["SENT", "UNPAID", "PARTIALLY_PAID"].includes(row.status)) return res.status(409).json({ error: `A plan can only be offered on a sent, unpaid invoice (status ${row.status}).` });
     const installments = validatePlan(req.body?.installments, row.due, row.currency);
+    const message = composePlanMessage(note, installments, row.currency);
     const previous = reminderHistory(id);
     if (previous && (previous.status !== "sent" || Date.now() - Date.parse(previous.at) < 48 * 3600_000) && req.body?.confirmRepeat !== true) {
       return res.status(409).json({ error: "This client was contacted recently or a delivery is unconfirmed. Review PayPal before sending a plan.", repeatConfirmationRequired: true });
@@ -306,7 +307,7 @@ app.post("/api/invoices/:id/plan", writeLimit, async (req, res) => {
     });
 
     await recordReminder(id, "pending");
-    await paypal.remindInvoice(id, { subject, note });
+    await paypal.remindInvoice(id, { subject, note: message });
     await recordReminder(id, "sent");
     logEvent(
       "agent",
