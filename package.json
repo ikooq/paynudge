@@ -1,0 +1,32 @@
+{
+  "name": "paynudge",
+  "version": "1.0.0",
+  "description": "AI agent that turns client chats into PayPal invoices and nudges clients until they pay.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "demo": "node server.js --demo",
+    "check": "node scripts/check-setup.js",
+    "seed": "node scripts/seed-sandbox.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "paypal",
+    "invoicing",
+    "ai",
+    "agent",
+    "groq",
+    "ag-grid"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^3.0.0",
+    "ag-grid-community": "^36.3.0",
+    "dotenv": "^18.0.10",
+    "express": "^5.1.0"
+  }
+}

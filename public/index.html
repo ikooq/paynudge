@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PayNudge</title>
+  <meta name="description" content="AI agent that turns client chats into PayPal invoices and follows up until they're paid." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <img src="/favicon.svg" alt="" width="28" height="28" />
+      <span>PayNudge</span>
+    </a>
+    <div class="chips" id="statusChips" aria-live="polite"></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>From client chat to <em>paid</em>.</h1>
+      <p>Paste a conversation or drop a screenshot. AI drafts the invoice, PayPal sends it, and PayNudge follows up until the client pays.</p>
+    </section>
+
+    <section class="create">
+      <article class="card composer">
+        <div class="card-head">
+          <span class="step">1</span>
+          <h2>Client conversation</h2>
+        </div>
+        <div class="samples">
+          <span class="muted">Try a sample:</span>
+          <div id="sampleChips" class="sample-chips"></div>
+        </div>
+        <div class="dropzone" id="dropzone">
+          <textarea id="chatInput" spellcheck="false" placeholder="Paste the chat with your client here. Any language works.&#10;&#10;You can also drop or paste screenshots of the conversation."></textarea>
+          <div class="thumbs" id="thumbs"></div>
+        </div>
+        <div class="composer-actions">
+          <label class="btn ghost">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-2h6l2 2h3v12H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+            Add screenshot
+            <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+          </label>
+          <button class="btn primary" id="extractBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" /></svg>
+            Draft invoice with AI
+          </button>
+        </div>
+      </article>
+
+      <article class="card draft" id="draftCard">
+        <div class="card-head">
+          <span class="step">2</span>
+          <h2>Review &amp; send</h2>
+        </div>
+        <div id="draftBody"></div>
+      </article>
+    </section>
+
+    <section class="receivables">
+      <div class="section-head">
+        <div>
+          <h2><span class="step">3</span> Receivables</h2>
+          <p class="muted" id="updatedAt">Loading from PayPal…</p>
+        </div>
+        <div class="section-tools">
+          <input type="search" id="gridSearch" placeholder="Search invoices" aria-label="Search invoices" />
+          <button class="btn ghost icon" id="refreshBtn" title="Refresh from PayPal" aria-label="Refresh from PayPal">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <article class="card copilot">
+        <form id="copilotForm" class="copilot-form">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
+          <input id="copilotInput" autocomplete="off" placeholder="Ask about your receivables, e.g. “Who should I chase first?”" />
+          <button class="btn primary small" type="submit">Ask</button>
+        </form>
+        <div class="copilot-suggestions" id="copilotSuggestions"></div>
+        <div class="copilot-answer" id="copilotAnswer" hidden></div>
+      </article>
+
+      <article class="card grid-card">
+        <div id="grid" class="grid"></div>
+      </article>
+    </section>
+
+    <footer class="footer muted">
+      Built for the PayPal AI Hackathon · PayPal Invoicing API (sandbox) · GPT-OSS &amp; Qwen on Groq · AG Grid
+    </footer>
+  </main>
+
+  <dialog id="nudgeDialog" class="dialog">
+    <form method="dialog" id="nudgeForm">
+      <header>
+        <div>
+          <h3 id="nudgeTitle">Nudge client</h3>
+          <p class="muted" id="nudgeMeta"></p>
+        </div>
+        <button class="btn ghost icon" value="cancel" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <div class="tone" role="radiogroup" aria-label="Tone">
+        <label><input type="radio" name="tone" value="friendly" checked /><span>Friendly</span></label>
+        <label><input type="radio" name="tone" value="firm" /><span>Firm</span></label>
+        <label><input type="radio" name="tone" value="final" /><span>Final notice</span></label>
+      </div>
+      <label class="field">
+        <span>Subject</span>
+        <input id="nudgeSubject" maxlength="200" />
+      </label>
+      <label class="field">
+        <span>Message <em class="muted">PayPal adds the “View and pay” button</em></span>
+        <textarea id="nudgeNote" rows="6" maxlength="1000"></textarea>
+      </label>
+      <footer>
+        <button class="btn ghost" type="button" id="regenBtn">Rewrite with AI</button>
+        <span class="spacer"></span>
+        <button class="btn primary" type="button" id="sendNudgeBtn">Send reminder via PayPal</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

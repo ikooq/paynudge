@@ -1,0 +1,147 @@
+import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "./src/config.js";
+import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
+import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
+import { publicSamples } from "./src/samples.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
+const { PayPalError } = config.paypal.live ? paypal : { PayPalError: class {} };
+
+const app = express();
+app.use(express.json({ limit: "20mb" }));
+app.use(express.static(path.join(here, "public")));
+app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
+
+// --- Small per-IP rate limit for the endpoints that call the AI -------------------------------
+const hits = new Map();
+function aiLimit(req, res, next) {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const list = (hits.get(req.ip) || []).filter((t) => now - t < windowMs);
+  if (list.length >= config.aiRateLimit) {
+    return res.status(429).json({ error: "Too many AI requests. Please wait a few minutes." });
+  }
+  list.push(now);
+  hits.set(req.ip, list);
+  next();
+}
+
+async function allRows() {
+  const today = todayISO();
+  const rows = (await paypal.listInvoices()).map((inv) => toRow(inv, today));
+  return rows.sort((a, b) => (b.invoiceDate || "").localeCompare(a.invoiceDate || "") || b.number.localeCompare(a.number));
+}
+
+// --- API -------------------------------------------------------------------------------------
+app.get("/api/status", (req, res) => {
+  res.json({
+    paypal: { live: config.paypal.live, env: config.paypal.env },
+    ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name },
+    business: config.business.name,
+  });
+});
+
+app.get("/api/samples", (req, res) => res.json(publicSamples()));
+
+// 1) Conversation -> invoice draft (AI)
+app.post("/api/extract", aiLimit, async (req, res) => {
+  const text = String(req.body?.text || "").slice(0, 20000);
+  const images = (req.body?.images || [])
+    .filter((i) => /^image\/(png|jpeg|webp|gif)$/.test(i?.media_type) && typeof i?.data === "string")
+    .slice(0, 4);
+  if (!text.trim() && !images.length) return res.status(400).json({ error: "Paste a conversation or add a screenshot." });
+  const raw = await extractDraft({ text, images });
+  res.json(normalizeDraft(raw, config.business.defaultCurrency));
+});
+
+// 2) Draft -> PayPal invoice, created and sent through the Invoicing API
+app.post("/api/invoices", async (req, res) => {
+  const { invoice, draft } = buildPayPalInvoice(req.body?.draft || {}, config.business);
+  const created = await paypal.createDraftInvoice(invoice);
+  const hasEmail = Boolean(draft.client.email);
+  const payerUrl = await paypal.sendInvoice(created.id, {
+    subject: `Invoice from ${config.business.name}`,
+    note: draft.note_to_client || undefined,
+    sendToRecipient: hasEmail,
+  });
+  const fresh = await paypal.getInvoice(created.id);
+  const row = toRow(fresh);
+  res.status(201).json({ row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail });
+});
+
+// 3) Receivables dashboard data, read live from PayPal
+app.get("/api/invoices", async (req, res) => {
+  const rows = await allRows();
+  res.json({ rows, kpis: computeKpis(rows), updatedAt: new Date().toISOString() });
+});
+
+// 4) AI-written reminder for one invoice (not sent yet: the user reviews it first)
+app.post("/api/invoices/:id/reminder-draft", aiLimit, async (req, res) => {
+  const row = toRow(await paypal.getInvoice(req.params.id));
+  const tone = ["friendly", "firm", "final"].includes(req.body?.tone) ? req.body.tone : "friendly";
+  const reminder = await draftReminder({ row, tone });
+  res.json({ ...reminder, tone, row });
+});
+
+// 5) Send the approved reminder through PayPal
+app.post("/api/invoices/:id/remind", async (req, res) => {
+  const subject = String(req.body?.subject || "").trim().slice(0, 200);
+  const note = String(req.body?.note || "").trim().slice(0, 1000);
+  if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });
+  await paypal.remindInvoice(req.params.id, { subject, note });
+  res.json({ ok: true });
+});
+
+// 6) Copilot: questions about receivables, answered from live PayPal data
+app.post("/api/copilot", aiLimit, async (req, res) => {
+  const question = String(req.body?.question || "").trim().slice(0, 500);
+  if (!question) return res.status(400).json({ error: "Ask a question first." });
+  const rows = await allRows();
+  const result = await askCopilot({ question, rows });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const actions = (result.actions || [])
+    .filter((a) => byId.has(a.invoice_id))
+    .filter((a) => a.type !== "remind" || byId.get(a.invoice_id).due > 0)
+    .slice(0, 3);
+  res.json({ answer: result.answer, actions });
+});
+
+// Demo mode only: a stand-in for PayPal's payer page so the full loop can be shown without keys.
+if (!config.paypal.live) {
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  app.get("/demo-pay/:id", async (req, res) => {
+    const inv = toRow(await paypal.getInvoice(req.params.id));
+    const row = { ...inv, number: esc(inv.number), client: esc(inv.client), items: esc(inv.items), currency: esc(inv.currency) };
+    res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demo payer view</title><style>body{font-family:system-ui,sans-serif;background:#f4f4f7;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}
+main{background:#fff;border-radius:16px;padding:28px;max-width:420px;width:100%;box-shadow:0 10px 30px #0001}button{width:100%;padding:12px;border:0;border-radius:10px;background:#14171f;color:#fff;font-size:16px;cursor:pointer}
+small{color:#666}</style><main><small>DEMO MODE: this page stands in for PayPal's invoice page</small><h2>Invoice #${row.number}</h2>
+<p>${row.client}<br>${row.items}</p><h1>${row.due.toFixed(2)} ${row.currency}</h1>
+${row.due > 0 ? `<form method="post"><button>Simulate payment</button></form>` : "<p><b>Paid. Thank you!</b></p>"}</main>`);
+  });
+  app.post("/demo-pay/:id", async (req, res) => {
+    await paypal.markPaid(req.params.id);
+    res.redirect(`/demo-pay/${req.params.id}`);
+  });
+}
+
+// --- Errors ------------------------------------------------------------------------------------
+app.use((err, req, res, next) => {
+  if (err instanceof PayPalError) {
+    console.error("PayPal error", err.status, err.debugId, JSON.stringify(err.body));
+    return res.status(err.status >= 500 ? 502 : 400).json({ error: `PayPal: ${err.message}`, debugId: err.debugId });
+  }
+  if (err instanceof AIError) return res.status(err.status).json({ error: err.message });
+  console.error(err);
+  res.status(err.status || 500).json({ error: err.message || "Something went wrong." });
+});
+
+app.listen(config.port, () => {
+  console.log(`PayNudge running at http://localhost:${config.port}`);
+  console.log(`  PayPal: ${config.paypal.live ? `${config.paypal.env} API` : "demo mode (in-memory mock)"}`);
+  const vision = config.ai.visionModel ? ` (screenshots: ${config.ai.visionModel})` : "";
+  console.log(`  AI:     ${config.ai.live ? `${config.ai.name} · ${config.ai.model}${vision}` : "demo mode (canned responses)"}`);
+});
