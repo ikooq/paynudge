@@ -654,7 +654,7 @@ function confetti() {
   canvas.width = innerWidth * dpr;
   canvas.height = innerHeight * dpr;
   ctx.scale(dpr, dpr);
-  const colors = ["#5b4cf0", "#8b80ff", "#c8f169", "#16803c", "#f1b45a", "#ffffff"];
+  const colors = ["#c9a45a", "#e8cf94", "#8a6d33", "#6fcf8e", "#f4f1ec", "#ffffff"];
   const parts = Array.from({ length: 140 }, () => ({
     x: innerWidth / 2 + (Math.random() - 0.5) * 200,
     y: innerHeight * 0.35,
@@ -1567,6 +1567,12 @@ setupGrid();
 setupTabs();
 setupVoice();
 setupPlan();
+// The hero frame's evidence loop runs forever, so it has a pause control.
+$("#heroPause")?.addEventListener("click", (e) => {
+  const paused = $("#heroFrame").classList.toggle("is-paused");
+  e.currentTarget.setAttribute("aria-pressed", String(paused));
+  e.currentTarget.setAttribute("aria-label", paused ? "Play the animation" : "Pause the animation");
+});
 $("#planBody").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-plan-id]");
   const row = button && state.rows.find((r) => r.id === button.dataset.planId);

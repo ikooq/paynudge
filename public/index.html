@@ -1,14 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-type="software">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PayNudge</title>
-  <meta name="description" content="AI agent that turns client chats into PayPal invoices and follows up until they're paid." />
+  <title>PayNudge · PayPal invoices from client chats</title>
+  <meta name="description" content="PayNudge turns a client chat, screenshot or voice note into a PayPal invoice, quotes the line behind every item, and offers late clients a payment plan PayPal collects in parts." />
+  <meta name="page-type" content="software" />
+  <meta name="site-kind" content="software" />
+  <meta name="theme-color" content="#0c0a08" />
+  <meta property="og:title" content="PayNudge · PayPal invoices from client chats" />
+  <meta property="og:description" content="Chat, screenshot or voice note in, PayPal invoice out, with the source line behind every item." />
+  <meta property="og:type" content="website" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <!-- tasteskill deal: kind software (fintech) · palette warm-black-gold (near-black ground and a gold accent read as money and trust, no violet) · type funnel (Funnel Display / Funnel Sans + DM Mono) · radius soft -->
+  <link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400..700&family=Funnel+Sans:wght@400..600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
 </head>
@@ -22,15 +29,15 @@
   </header>
 
   <main>
-    <section class="hero">
+    <section class="hero" data-enter>
       <div class="hero-copy">
-        <span class="eyebrow"><i></i> AI receivables assistant on PayPal</span>
-        <h1>From client chat to <em>paid</em>.</h1>
-        <p>Paste a client chat or screenshot in any language. AI drafts a PayPal invoice and shows the exact chat line behind every item, so you can check it in seconds. PayPal sends it, and overdue reminders are written in your client's own language.</p>
+        <span class="eyebrow"><i></i> Invoicing for freelancers, on PayPal</span>
+        <h1><span class="h1-line">PayPal invoices</span> <span class="h1-line">from a client chat,</span> <span class="h1-line"><em>in seconds.</em></span></h1>
+        <p class="hero-lead">Paste a chat, drop a screenshot or record a voice note in any language. PayNudge drafts the invoice with the client's own words behind every line, PayPal sends it, and a late client gets a payment plan in their language.</p>
         <ul class="hero-points">
-          <li><b>Evidence, not guesses:</b> every line item quotes the message it came from</li>
-          <li><b>Any language in, client's language out:</b> Russian, Spanish, English chats</li>
-          <li><b>You approve, PayPal sends:</b> nothing leaves without your review</li>
+          <li><b>16 of 16</b> test chats drafted correctly, 2 s each</li>
+          <li><b>Every line</b> quotes the message it came from</li>
+          <li><b>Nothing sends</b> until you approve it</li>
         </ul>
         <div class="hero-actions">
           <button class="btn primary" id="heroTry" type="button">
@@ -42,47 +49,48 @@
             Review overdue reminders
           </button>
         </div>
+        <div class="built-on">
+          <span>Runs on</span>
+          <span class="logo-tile"><img src="/icons/paypal.svg" alt="PayPal" width="17" height="20" /> PayPal Invoicing</span>
+          <span class="logo-tile"><img src="/icons/groq.svg" alt="Groq" width="44" height="12" /></span>
+          <span class="logo-tile"><img src="/icons/render.svg" alt="" width="18" height="18" /> Render</span>
+        </div>
       </div>
 
-      <div class="hero-visual" aria-hidden="true">
-        <div class="hv-chat">
-          <div class="hv-head"><span class="hv-avatar">M</span><b>Maya · Bloom Coffee</b></div>
-          <p class="hv-bubble in">Let's go with option B for the logo!</p>
-          <p class="hv-bubble out">Logo $450 + 3 templates $40 each 👍</p>
-          <p class="hv-bubble in">Deal. Invoice maya@bloomcoffee.co</p>
+      <!-- The product's own UI as live HTML: the chat on the left, the draft it became on the right.
+           The loop lights one chat line and the invoice line it proves, every 3.2 s. -->
+      <div class="hero-visual app-frame" id="heroFrame" data-loop>
+        <div class="af-bar">
+          <span class="af-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="af-title">PayNudge · Review &amp; send</span>
+          <button type="button" class="af-pause" id="heroPause" aria-pressed="false" aria-label="Pause the animation">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-pause" d="M9 6v12M15 6v12" /><path class="i-play" d="M8 6l10 6-10 6z" /></svg>
+          </button>
         </div>
-        <div class="hv-ai"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>AI draft</div>
-        <div class="hv-invoice">
-          <div class="hv-inv-head"><b>Invoice #0042</b><span>PayPal</span></div>
-          <div class="hv-line"><span>Logo package</span><span>$450.00</span></div>
-          <div class="hv-line"><span>3 × Instagram template</span><span>$120.00</span></div>
-          <div class="hv-line hv-total"><span>Total</span><span>$570.00</span></div>
-          <div class="hv-stamp">PAID</div>
+        <div class="af-body" aria-hidden="true">
+          <div class="af-chat">
+            <p class="af-who">Aigerim · Tulpar Coffee <span>Telegram</span></p>
+            <p class="af-msg in">Option B for the logo, please!</p>
+            <p class="af-msg out"><mark class="q1">Logo $450</mark>, <mark class="q2">3 menu boards at $40</mark>. Due in a week?</p>
+            <p class="af-msg in"><mark class="q3">Deal, send it to aigerim@tulpar.kz</mark></p>
+          </div>
+          <div class="af-invoice">
+            <div class="af-inv-head"><b>Invoice #0042</b><img src="/icons/paypal.svg" alt="" width="15" height="18" /></div>
+            <div class="af-line q1"><span>Logo package</span><span class="num">$450.00</span><small>“Logo $450”</small></div>
+            <div class="af-line q2"><span>Menu board × 3</span><span class="num">$120.00</span><small>“3 menu boards at $40”</small></div>
+            <div class="af-line q3"><span>To aigerim@tulpar.kz</span><span class="num">Nov 18</span><small>“Deal, send it to…”</small></div>
+            <div class="af-total"><span>Total</span><span class="num">$570.00</span></div>
+            <div class="af-status"><i></i> Sent via PayPal</div>
+          </div>
         </div>
-        <div class="hv-toast"><i></i> Bloom Coffee just paid $570</div>
       </div>
     </section>
 
-    <section class="how" aria-label="How it works">
-      <div class="how-step">
-        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z" /></svg></span>
-        <div><b>Paste the chat</b><p>Text or screenshots, in any language</p></div>
+    <section class="create" aria-labelledby="createTitle">
+      <div class="section-title">
+        <h2 id="createTitle">Draft an invoice from a client chat</h2>
+        <p class="muted">Text, screenshots or a voice note. You review every field before PayPal sends anything.</p>
       </div>
-      <div class="how-step">
-        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg></span>
-        <div><b>AI drafts the invoice</b><p>Items, prices, currency, due date, red flags</p></div>
-      </div>
-      <div class="how-step">
-        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M3 7h18v12H3z" /><path d="M3 11h18M7 15h3" /></svg></span>
-        <div><b>PayPal sends &amp; collects</b><p>Invoicing API, pay with PayPal or card</p></div>
-      </div>
-      <div class="how-step">
-        <span class="how-icon"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg></span>
-        <div><b>Review AI reminders</b><p>Right tone, client's language, your approval</p></div>
-      </div>
-    </section>
-
-    <section class="create">
       <article class="card composer">
         <div class="card-head">
           <span class="step">1</span>
@@ -218,7 +226,8 @@
     </section>
 
     <footer class="footer muted">
-      Built for the PayPal AI Hackathon · PayPal Invoicing API (sandbox) · open AI models on Groq · AG Grid
+      <span>Built for the PayPal AI Hackathon · PayPal Invoicing API (sandbox) · open AI models on Groq · AG Grid · hosted on Render</span>
+      <span>Product names and logos are trademarks of their owners.</span>
     </footer>
   </main>
 

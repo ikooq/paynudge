@@ -4,3 +4,5 @@ node_modules/
 *.log
 .claude/
 data/
+shots/
+.taste-skill/

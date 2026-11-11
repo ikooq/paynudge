@@ -1,32 +1,34 @@
 # PayNudge: demo and judging guide
 
-Use only PayPal sandbox accounts and fictional conversations. The deployed demo is shared, so do not paste confidential customer messages. The buyer and seller must be different sandbox accounts. Start the Render app ahead of time so the free instance can wake up. Confirm the current build is deployed before recording.
+Use only PayPal sandbox accounts and fictional conversations. The deployed demo is shared, so do not paste confidential customer messages. The buyer and seller must be different sandbox accounts. Open the live site a few minutes before recording (a GitHub Action keeps it awake, but check), and confirm the current build in `/api/status` (`build`).
 
 ## Prepare
 
-1. In PayPal Developer → Testing Tools → Sandbox Accounts, identify a **Personal** buyer account and its login credentials. Keep the password private. The app's PayPal sandbox credentials belong to the seller's **Business** account.
-2. Open PayNudge and check the status chips say **PayPal Sandbox** and show a live AI provider. Demo mode uses mock payments and canned AI answers; do not present it as live integration.
-3. Check there are overdue sandbox invoices for the collection plan. `npm run seed` creates sample invoices when run with sandbox credentials. Seeded data and its simulated external payment are examples, not evidence that a buyer paid through PayPal.
-4. Prepare this fictional conversation, replacing the email with the Personal sandbox buyer's email:
+1. In PayPal Developer → Testing Tools → Sandbox Accounts, identify a **Personal** buyer account and its login. Keep the password private. The app's PayPal sandbox credentials belong to the seller's **Business** account.
+2. Open PayNudge and check the header chips say **PayPal Sandbox** and **AI · Groq**. Demo mode uses mock payments and canned AI answers; do not present it as the live integration.
+3. Check there are overdue sandbox invoices (`npm run seed` creates them with sandbox credentials). Seeded data and its manually recorded payment are examples, not evidence that a buyer paid through PayPal; the dashboard labels that payment "Recorded paid".
+4. Prepare this fictional chat, replacing the email with the Personal sandbox buyer's email:
 
-   > Client: I approve the logo design for $1. Please invoice BUYER_SANDBOX_EMAIL. Payment is due on receipt.  
+   > Client: I approve the logo design for $1. Please invoice BUYER_SANDBOX_EMAIL. Payment is due within 7 days.
    > Freelancer: Confirmed. Thank you!
 
-5. Record an actual sandbox payment at least once before filming. If the vision model's quota is exhausted, use pasted text or **Read screenshot locally**. Review the OCR text carefully and say which method is shown; do not imply the vision model succeeded when it did not.
+5. Optional voice clip: on a phone or the laptop, record yourself saying "Invoice Dana from Northbay Studio, website redesign nine hundred dollars, payment within two weeks." Do not dictate an email address; voice recognition rarely gets it right, and the app flags it rather than guessing.
+6. Rehearse one real sandbox payment before filming. If the screenshot model's quota is exhausted, paste the text or use **Read screenshot locally** and say which method is shown.
 
-## Suggested sequence (under three minutes)
+## Suggested sequence (2:50 at most)
 
-- **0:00–0:20 — Problem.** Explain who it helps: freelancers turn an agreed chat into an invoice and review follow-ups without manually copying information.
-- **0:20–0:55 — Draft.** Paste the conversation and generate a draft. Show the AI's source excerpt and review the $1 amount, the buyer email and payment terms. If no due date was extracted, explicitly select **Due on receipt**. Explain that a matching excerpt assists review but does not prove the agreement.
-- **0:55–1:35 — PayPal sandbox.** Create the invoice, open the buyer page and show the sandbox buyer paying. Do not show passwords or real financial details. Return to PayNudge and show the invoice becoming **Paid** and the amounts updating. If the status does not update, stop and investigate; do not claim that the payment worked.
-- **1:35–2:15 — Collections.** Show the aging filter and select overdue invoices in AG Grid. Prepare reminders, show their languages and tones, and explain that nothing is sent until the seller approves. If you actually send sandbox reminders, distinguish that action from the AI drafting them.
-- **2:15–2:40 — Why it matters and limits.** Explain that PayPal supplies invoice and payment state, while AI helps interpret chats and draft messages. The collection plan prioritizes age using explicit rules; it is not a prediction. This prototype is a shared sandbox demo, not a production system with customer accounts.
+- **0:00–0:15 — Problem and promise.** "Freelancers agree on work in chats, in any language. PayNudge turns that chat into a PayPal invoice, shows the client's own words behind every line, and when a client is late, offers a payment plan PayPal collects in parts."
+- **0:15–0:45 — Voice note → draft.** Click **Voice note**, say the clip, stop. The transcript appears in the chat box and the draft follows. Point at the quote under each line item and the totals. Mention: the AI never sends anything; you review every field.
+- **0:45–1:05 — Any language.** Click the **Russian chat** sample, draft it. Show the English invoice with Russian quotes as evidence.
+- **1:05–1:45 — PayPal for real.** Paste the $1 chat, draft, **Create & send via PayPal**, open the client's payment page, pay as the sandbox buyer (hide the password). Back in PayNudge: "just paid", the row turns green, Collected rises. If it does not update within 20 seconds, stop and investigate; do not claim it worked.
+- **1:45–2:25 — Payment plan.** In **Invoices**, click **Overdue**, then **Plan** on Northwind Labs. The AI proposes installments that add up exactly to the balance and writes the message in the client's language. Change one amount to show the live check turn red, fix it, approve. Explain: PayPal now accepts partial payments on the same invoice, and the schedule lives in the invoice in PayPal. Show the row change to "Plan 1/3".
+- **2:25–2:50 — Table and honesty.** Show the quick views, the paid-progress bar with plan ticks, the per-currency totals and **Export CSV**. Close with the measured result (16 of 16 test chats correct, quotes on 18 of 18 items) and one limit stated plainly: one shared sandbox seller, no login, a hackathon prototype.
 
-Use a single uninterrupted recording where possible, or label any cuts and pre-seeded data clearly. Upload the final video publicly to YouTube and submit its URL on Devpost. Make sure it remains under three minutes.
+Record in one take where possible, or mark cuts and pre-seeded data clearly. No background music unless you hold the rights. Upload publicly to YouTube and submit the URL on Devpost; keep it under three minutes.
 
 ## Judge access
 
-- Live demo and setup instructions: see the repository README.
-- `npm run demo` exercises the interface without API credentials using in-memory PayPal and canned AI responses. It is useful for exploration, not evidence of actual PayPal or live AI.
-- `npm test` runs local automated tests. `npm run evaluate-ai` tests four synthetic examples against the configured live AI provider and consumes quota; it is not a measure of general accuracy.
-- The reminder journal is single-instance local storage. Render's free filesystem can be reset. A durable production setup needs persistent storage and proper access control.
+- Live demo, features, PayPal calls and limits: the repository README.
+- `npm run demo` runs the interface without credentials (in-memory PayPal, canned AI). Useful for exploring, not evidence of the live integration.
+- `npm test` runs 13 automated tests. `npm run evaluate-ai` sends 16 synthetic chats to the configured live AI and writes `docs/AI-EVAL.md` (consumes quota; not a measure of general accuracy).
+- What is verified live and what is not (webhooks, partial payment by a real buyer, live voice) is listed in the README under "Payment updates" and "Known limitations".
