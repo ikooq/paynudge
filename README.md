@@ -36,6 +36,8 @@ PayNudge records reminder attempts locally (invoice ID, timestamp, and delivery 
 3. Click **Collections autopilot** to watch the agent draft reminders for the overdue invoices in English, Russian and Spanish.
 4. Ask the copilot "Who should I chase first?"
 
+For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DEMO.md).
+
 ## How PayPal is used
 
 | Step | PayPal API call |
