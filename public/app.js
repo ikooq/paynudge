@@ -1031,6 +1031,7 @@ async function loadInvoices({ flashId, announce } = {}) {
   try {
     const data = await api("/api/invoices");
     const before = new Map(state.rows.map((r) => [r.id, r]));
+    const planChanges = data.rows.filter((r) => before.has(r.id) && JSON.stringify(before.get(r.id).plan) !== JSON.stringify(r.plan));
     const newlyPaid = state.rows.length
       ? data.rows.filter((r) => {
           const old = before.get(r.id);
@@ -1046,6 +1047,9 @@ async function loadInvoices({ flashId, announce } = {}) {
     if (state.grid) {
       state.grid.setGridOption("loading", false);
       state.grid.setGridOption("rowData", data.rows);
+      // Several renderers depend on the plan even when their own field value is unchanged.
+      const planNodes = planChanges.map((row) => state.grid.getRowNode(row.id)).filter(Boolean);
+      if (planNodes.length) state.grid.refreshCells({ rowNodes: planNodes, force: true });
       if (newlyPaid.length) state.grid.redrawRows();
       if (flashId) {
         const node = state.grid.getRowNode(flashId);
