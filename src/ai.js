@@ -225,9 +225,12 @@ function extractSystemPrompt() {
 
 Draft the invoice the seller should send:
 - Bill only what the client actually agreed to. Each distinct deliverable or fee becomes one line item with a quantity and a unit price. Do not invent items, prices or discounts.
+- Treat quotes, proposals, and unaccepted estimates as unapproved; do not bill them. Follow the latest explicit agreement when earlier work, prices, or quantities are changed or cancelled. Warn when it is unclear what was approved.
 - Write item names, descriptions and the note to the client in English, whatever language the chat is in. Keep proper names as written, transliterated to Latin script when needed.
 - currency: the ISO 4217 code used in the conversation ($ means USD unless context says otherwise). If no currency appears, use ${config.business.defaultCurrency}.
 - due_date: today is ${dateContext()}. Resolve relative payment timing ("by Friday", "within a week", "10 days after delivery") into a calendar date. Leave it empty if payment timing was never discussed.
+- If payment depends on an event whose date is unknown (such as delivery), leave due_date empty and warn that the date needs confirmation. Never assume the missing event happened today.
+- When payment terms are absent or uncertain, do not claim that payment is due on receipt. Warn that the seller must confirm the terms.
 - client.email: only an address that literally appears in the conversation. Never guess one.
 - warnings: anything the seller should double-check before sending, such as a missing email, an approximate quantity, a price that was mentioned but not clearly agreed, or an assumption you made about dates. One short sentence each. Return an empty list when everything is clear.
 - summary: one sentence for the seller's private records describing the deal and the tone of the relationship.

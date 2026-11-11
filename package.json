@@ -10,7 +10,8 @@
     "demo": "node server.js --demo",
     "check": "node scripts/check-setup.js",
     "seed": "node scripts/seed-sandbox.js",
-    "test": "node --test"
+    "test": "node --test",
+    "evaluate-ai": "node scripts/evaluate-ai.js"
   },
   "engines": {
     "node": ">=20"

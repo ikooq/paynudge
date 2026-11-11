@@ -55,7 +55,9 @@ PayNudge runs on **Groq's free plan** with two open models:
 - **GPT-OSS 120B** (`openai/gpt-oss-120b`, medium reasoning) does the thinking: invoice extraction, reminders and the copilot. Every call uses **strict structured output**, so the response is constrained to a JSON schema and the app can act on it safely.
 - **Qwen 3.8 27B** (`qwen/qwen3.8-27b`) only reads screenshots: it transcribes the chat to text, and GPT-OSS then builds the invoice from that transcript.
 
-On the three sample chats (English, Russian, Spanish), the extraction gets the client, email, currency, every line item and the total right, in about 1.5–2.5 seconds. It also resolves "10 days after delivery by Friday" into a calendar date.
+The sample chats include English, Russian and Spanish. The model can resolve a relative payment date when its reference date is clear; dates and amounts always need human review.
+
+For a reproducible check against the configured live model, run `npm run evaluate-ai` while the app is running with AI credentials. It sends four synthetic conversations covering cancelled work, an unapproved quote, an unknown delivery date and a missing email; it consumes AI quota. These cases are not a general accuracy score, and a person must still verify every draft.
 
 | Feature | Input | Output |
 |---|---|---|
