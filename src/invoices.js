@@ -19,10 +19,18 @@ function round2(n) {
 
 // Cleans up whatever the model (or the user, after editing) sent back.
 export function normalizeDraft(draft, defaultCurrency = "USD") {
+  const warnings = (Array.isArray(draft.warnings) ? draft.warnings : []).map(String).filter(Boolean);
   const currency = /^[A-Z]{3}$/.test(String(draft.currency || "").toUpperCase())
     ? String(draft.currency).toUpperCase()
     : defaultCurrency;
-  const items = (draft.items || [])
+  if (!/^[A-Z]{3}$/.test(String(draft.currency || "").toUpperCase())) warnings.push(`Currency was missing or invalid; verify the default ${defaultCurrency}.`);
+  const inputItems = Array.isArray(draft.items) ? draft.items : [];
+  if (inputItems.some((it) => !Number.isFinite(Number(it.quantity)) || Number(it.quantity) <= 0 || !Number.isFinite(Number(it.unit_price)) || Number(it.unit_price) < 0)) {
+    warnings.push("One or more quantities or prices were invalid and have been adjusted. Check every line item against the agreement.");
+  }
+  if (inputItems.some((it) => !String(it.name || "").trim())) warnings.push("An item without a name was omitted. Check the conversation for missing work.");
+  if (draft.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(draft.due_date)) warnings.push("The payment date was invalid and has been cleared. Confirm the payment terms.");
+  const items = inputItems
     .map((it) => ({
       name: String(it.name || "").trim().slice(0, 200),
       description: String(it.description || "").trim().slice(0, 1000),
@@ -47,7 +55,7 @@ export function normalizeDraft(draft, defaultCurrency = "USD") {
     note_to_client: String(draft.note_to_client || "").trim().slice(0, 4000),
     summary: String(draft.summary || "").trim(),
     conversation_language: String(draft.conversation_language || "English").trim(),
-    warnings: (draft.warnings || []).map(String).filter(Boolean),
+    warnings,
     total: round2(items.reduce((sum, it) => sum + it.quantity * it.unit_price, 0)),
   };
 }

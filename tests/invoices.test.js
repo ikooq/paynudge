@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPayPalInvoice, toRow } from "../src/invoices.js";
+import { buildPayPalInvoice, normalizeDraft, toRow } from "../src/invoices.js";
 import * as mock from "../src/mockPaypal.js";
 
 const business = { name: "Studio", defaultCurrency: "USD" };
@@ -27,6 +27,15 @@ test("unsafe dates and amounts are rejected instead of silently changed", () => 
     { name: "Design", quantity: 1, unit_price: 1.234 },
   ]) assert.throws(() => buildPayPalInvoice({ ...draft(), items: [item] }, business));
   assert.throws(() => buildPayPalInvoice({ ...draft(), currency: "JPY", items: [{ name: "Work", quantity: 1, unit_price: 1.5 }] }, business), /whole/);
+});
+
+test("changes to malformed AI output are surfaced for review", () => {
+  const result = normalizeDraft({ currency: "?", due_date: "tomorrow", items: [{ name: "Work", quantity: 0, unit_price: -10 }, { name: "", quantity: 1, unit_price: 5 }] });
+  assert.equal(result.items.length, 1);
+  assert.ok(result.warnings.some((warning) => /quantities or prices/.test(warning)));
+  assert.ok(result.warnings.some((warning) => /without a name/.test(warning)));
+  assert.ok(result.warnings.some((warning) => /payment date/.test(warning)));
+  assert.ok(result.warnings.some((warning) => /Currency/.test(warning)));
 });
 
 test("retrying a demo invoice returns one invoice and can be paid", async () => {

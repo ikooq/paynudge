@@ -376,6 +376,10 @@ function setupDraftEvents() {
       if (b) d[a][b] = t.value;
       else d[a] = a === "due_on_receipt" ? t.checked : a === "currency" ? t.value.toUpperCase() : t.value;
       if (t.dataset.field === "client.email") updateSendHint();
+      if (t.dataset.field === "currency") {
+        for (const item of d.items) { item.evidence = ""; item.evidence_source = ""; }
+        $$(".item-evidence", body).forEach((el) => { el.textContent = "Currency changed: check this item against the original conversation."; });
+      }
     }
     if (t.dataset.item) {
       const row = t.closest(".item-row");
