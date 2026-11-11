@@ -6,11 +6,17 @@ import { spawn } from "node:child_process";
 
 test("AI extraction shows only excerpts found in the source or screenshot transcript", async (t) => {
   const calls = [];
+  let visionLimited = false;
   const provider = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const request = JSON.parse(body);
     calls.push(request);
+    if (request.model === "vision-test" && visionLimited) {
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "rate limit" } }));
+      return;
+    }
     const output = request.model === "vision-test" ? "Client: Logo for $500" : JSON.stringify({
       client: { name: "", business_name: "", email: "" }, currency: "USD",
       items: [
@@ -53,4 +59,8 @@ test("AI extraction shows only excerpts found in the source or screenshot transc
   assert.equal(draft.items[1].evidence, "");
   assert.deepEqual(calls.map((call) => call.model), ["vision-test", "text-test"]);
   assert.ok(calls[1].response_format.json_schema.schema.properties.items.items.required.includes("evidence"));
+  visionLimited = true;
+  const limited = await fetch(`${base}/api/extract`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ images: [{ media_type: "image/png", data: "dGVzdA==" }] }) });
+  assert.equal(limited.status, 429);
+  assert.match((await limited.json()).error, /Paste the chat as text/);
 });

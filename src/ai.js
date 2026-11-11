@@ -158,6 +158,9 @@ async function transcribeScreenshots(images) {
     });
     return String(transcript).replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   } catch (err) {
+    if (err instanceof ProviderError && err.status === 429) {
+      throw new AIError("Screenshot reading is temporarily unavailable because the vision model's quota is exhausted. Paste the chat as text or try again later.", 429);
+    }
     throw friendlyError(err);
   }
 }
