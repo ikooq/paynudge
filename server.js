@@ -14,12 +14,26 @@ const paypal = config.paypal.live ? await import("./src/paypal.js") : await impo
 const { PayPalError } = config.paypal.live ? paypal : { PayPalError: class {} };
 
 const app = express();
+// Render terminates HTTPS at its load balancer. Trust one hop only there so
+// per-client limits don't accidentally treat every judge as the same visitor.
+if (process.env.RENDER === "true") app.set("trust proxy", 1);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(here, "public")));
 app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
 
 // --- Small per-IP rate limit for the endpoints that call the AI -------------------------------
 const hits = new Map();
+const writeHits = new Map();
+function writeLimit(req, res, next) {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const list = (writeHits.get(req.ip) || []).filter((t) => now - t < windowMs);
+  if (list.length >= 30) return res.status(429).json({ error: "Too many invoice or reminder requests. Please wait a few minutes." });
+  list.push(now);
+  writeHits.set(req.ip, list);
+  if (writeHits.size > 1000) for (const [key, times] of writeHits) if (now - times[times.length - 1] >= windowMs) writeHits.delete(key);
+  next();
+}
 function aiLimit(req, res, next) {
   const now = Date.now();
   const windowMs = 10 * 60 * 1000;
@@ -44,6 +58,7 @@ app.get("/api/status", (req, res) => {
     paypal: { live: config.paypal.live, env: config.paypal.env },
     ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name },
     business: config.business.name,
+    build: process.env.RENDER_GIT_COMMIT || null,
   });
 });
 
@@ -70,7 +85,7 @@ app.post("/api/extract", aiLimit, async (req, res) => {
 });
 
 // 2) Draft -> PayPal invoice, created and sent through the Invoicing API
-app.post("/api/invoices", async (req, res) => {
+app.post("/api/invoices", writeLimit, async (req, res) => {
   const operationId = String(req.body?.operationId || "");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
     return res.status(400).json({ error: "A valid invoice operation ID is required." });
@@ -137,7 +152,7 @@ app.post("/api/invoices/:id/reminder-draft", aiLimit, async (req, res) => {
 
 // 5) Send the approved reminder through PayPal
 const reminderLocks = new Set();
-app.post("/api/invoices/:id/remind", async (req, res) => {
+app.post("/api/invoices/:id/remind", writeLimit, async (req, res) => {
   const subject = String(req.body?.subject || "").trim().slice(0, 200);
   const note = String(req.body?.note || "").trim().slice(0, 1000);
   if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });

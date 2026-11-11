@@ -14,7 +14,7 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
   const port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
   const historyFile = path.join(tmp, "reminders.json");
-  const child = spawn(process.execPath, ["server.js", "--demo"], { env: { ...process.env, PORT: String(port), REMINDER_HISTORY_FILE: historyFile }, stdio: "ignore" });
+  const child = spawn(process.execPath, ["server.js", "--demo"], { env: { ...process.env, PORT: String(port), REMINDER_HISTORY_FILE: historyFile, RENDER: "true", RENDER_GIT_COMMIT: "test-commit", AI_RATE_LIMIT: "1" }, stdio: "ignore" });
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = new Promise((resolve) => child.once("exit", resolve));
@@ -30,6 +30,13 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.ok(ready, "server should start");
+  assert.equal((await (await fetch(`${base}/api/status`)).json()).build, "test-commit");
+  async function extractAs(ip) {
+    return fetch(`${base}/api/extract`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify({ text: "Test invoice $10" }) });
+  }
+  assert.equal((await extractAs("198.51.100.10")).status, 200);
+  assert.equal((await extractAs("198.51.100.11")).status, 200);
+  assert.equal((await extractAs("198.51.100.10")).status, 429);
   const json = async (url, body) => {
     const response = await fetch(base + url, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: response.status, data: await response.json() };
