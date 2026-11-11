@@ -17,6 +17,8 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
       - key: BUSINESS_NAME
         value: Studio Nord
       - key: AI_RATE_LIMIT

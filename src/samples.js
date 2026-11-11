@@ -42,7 +42,7 @@ Deal. Send the invoice to maya@bloomcoffee.co, we usually pay within a week 👍
 Я: Здравствуйте! Ставка 25$ за страницу. Если нужно к пятнице, то +50$ за срочность.
 Дмитрий (TechStart): Да, к пятнице обязательно. И ещё нужна вычитка носителем языка.
 Я: Вычитка носителем — 80$ за весь объём.
-Дмитрий (TechStart): Ок, всё согласовано. Счёт на d.ivanov@techstart.kz, оплатим в течение 10 дней после сдачи.`,
+Дмитрий (TechStart): Ок, всё согласовано. Счёт на d.ivanov@techstart.kz, оплатим в течение 10 дней после получения счёта.`,
     expected: {
       client: { name: "Dmitry Ivanov", business_name: "TechStart", email: "d.ivanov@techstart.kz" },
       currency: "USD",
@@ -56,7 +56,7 @@ Deal. Send the invoice to maya@bloomcoffee.co, we usually pay within a week 👍
       note_to_client: "Thank you for trusting us with the TechStart website translation, Dmitry!",
       summary: "Website translation (12 pages) with rush delivery and native proofreading for TechStart; businesslike tone.",
       conversation_language: "Russian",
-      warnings: ["Payment is due 10 days after delivery; the due date assumes delivery today."],
+      warnings: [],
     },
   },
   {

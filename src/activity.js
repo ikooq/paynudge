@@ -22,7 +22,9 @@ export function detectPayments(rows) {
       if (!before) continue;
       const nowPaid = PAID.has(r.status) && !PAID.has(before.status);
       const partial = r.paid > before.paid && !nowPaid;
-      if (nowPaid || partial) {
+      // A verified PayPal webhook may already have announced this payment.
+      const announced = events.some((e) => e.kind === "payment" && e.invoiceId === r.id && e.viaWebhook);
+      if ((nowPaid || partial) && !announced) {
         const amount = r.paid - before.paid || r.amount;
         logEvent("payment", `${r.client} paid ${amount.toFixed(2)} ${r.currency} for invoice #${r.number}`, { invoiceId: r.id });
       }
@@ -42,6 +44,16 @@ function derived(rows) {
     }
   }
   return out;
+}
+
+// Live updates for open dashboards (Server-Sent Events): a webhook pushes, the page refreshes.
+const listeners = new Set();
+export function subscribe(send) {
+  listeners.add(send);
+  return () => listeners.delete(send);
+}
+export function broadcast(message) {
+  for (const send of listeners) send(message);
 }
 
 export function listActivity(rows = []) {

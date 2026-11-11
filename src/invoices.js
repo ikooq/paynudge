@@ -196,6 +196,9 @@ export function computeKpis(rows) {
     overdue: sumBy((r) => r.daysOverdue > 0, "due"),
     overdueCount: rows.filter((r) => r.daysOverdue > 0).length,
     collected: sumBy((r) => PAID_STATUSES.has(r.status) || r.paid > 0, "paid"),
+    // PAID = the client paid through PayPal; MARKED_AS_PAID / PAID_EXTERNAL = recorded by the seller.
+    collectedViaPayPal: sumBy((r) => r.status === "PAID", "paid"),
+    collectedRecorded: sumBy((r) => r.status !== "PAID" && (PAID_STATUSES.has(r.status) || r.paid > 0), "paid"),
     openCount: rows.filter((r) => OPEN_STATUSES.has(r.status)).length,
     total: rows.length,
   };

@@ -24,9 +24,14 @@
   <main>
     <section class="hero">
       <div class="hero-copy">
-        <span class="eyebrow"><i></i> AI receivables agent on PayPal</span>
+        <span class="eyebrow"><i></i> AI receivables assistant on PayPal</span>
         <h1>From client chat to <em>paid</em>.</h1>
-        <p>Paste a conversation or drop a screenshot. AI drafts an invoice, PayPal sends it, and you can review personalized reminders for overdue payments.</p>
+        <p>Paste a client chat or screenshot in any language. AI drafts a PayPal invoice and shows the exact chat line behind every item, so you can check it in seconds. PayPal sends it, and overdue reminders are written in your client's own language.</p>
+        <ul class="hero-points">
+          <li><b>Evidence, not guesses:</b> every line item quotes the message it came from</li>
+          <li><b>Any language in, client's language out:</b> Russian, Spanish, English chats</li>
+          <li><b>You approve, PayPal sends:</b> nothing leaves without your review</li>
+        </ul>
         <div class="hero-actions">
           <button class="btn primary" id="heroTry" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
@@ -136,6 +141,13 @@
 
       <div class="kpis" id="kpis"></div>
 
+      <div class="tabs" role="tablist" aria-label="Receivables views">
+        <button class="tab" role="tab" id="tab-invoices" aria-controls="panel-invoices" aria-selected="true" type="button">Invoices</button>
+        <button class="tab" role="tab" id="tab-insights" aria-controls="panel-insights" aria-selected="false" tabindex="-1" type="button">Insights &amp; activity</button>
+        <button class="tab" role="tab" id="tab-ask" aria-controls="panel-ask" aria-selected="false" tabindex="-1" type="button">Ask AI</button>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="panel-invoices" aria-labelledby="tab-invoices">
       <article class="card recovery-plan" aria-labelledby="planTitle">
         <div class="mini-head">
           <div><h3 id="planTitle">Today's collection plan</h3><p class="muted">Oldest overdue invoices first, with recent contact set aside for review.</p></div>
@@ -144,6 +156,13 @@
         <div id="planBody"></div>
       </article>
 
+      <article class="card grid-card">
+        <p class="muted" id="gridGuidance" style="padding: 12px 16px; margin: 0">Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.</p>
+        <div id="grid" class="grid"></div>
+      </article>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="panel-insights" aria-labelledby="tab-insights" hidden>
       <div class="insights">
         <article class="card aging">
           <div class="mini-head">
@@ -161,7 +180,9 @@
           <ol id="activityFeed" class="feed"></ol>
         </article>
       </div>
+      </div>
 
+      <div class="tab-panel" role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" hidden>
       <article class="card copilot">
         <form id="copilotForm" class="copilot-form">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
@@ -171,15 +192,11 @@
         <div class="copilot-suggestions" id="copilotSuggestions"></div>
         <div class="copilot-answer" id="copilotAnswer" hidden></div>
       </article>
-
-      <article class="card grid-card">
-        <p class="muted" id="gridGuidance" style="padding: 12px 16px; margin: 0">Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.</p>
-        <div id="grid" class="grid"></div>
-      </article>
+      </div>
     </section>
 
     <footer class="footer muted">
-      Built for the PayPal AI Hackathon · PayPal Invoicing API (sandbox) · GPT-OSS &amp; Qwen on Groq · AG Grid
+      Built for the PayPal AI Hackathon · PayPal Invoicing API (sandbox) · open AI models on Groq · AG Grid
     </footer>
   </main>
 

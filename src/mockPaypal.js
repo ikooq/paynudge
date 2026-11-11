@@ -100,7 +100,7 @@ function seed(client, email, lang, memo, currency, items, invoiceDaysAgo, dueInD
     unit_amount: { currency_code: currency, value: price.toFixed(2) },
   }));
   const amount = totals(lineItems, currency);
-  const paid = status === "PAID";
+  const paid = status === "PAID" || status === "MARKED_AS_PAID";
   const [given, ...rest] = client.contact.split(" ");
   invoices.set(id, {
     id,
@@ -134,7 +134,7 @@ seed({ business: "Atelier Rosa", contact: "Rosa Martín" }, "rosa@atelierrosa.es
   [["Brand guidelines", 1, 600]], 12, -3, "SENT");
 seed({ business: "Pixel & Pine", contact: "Jordan Lee" }, "jordan@pixelpine.io", "English",
   "Monthly social media retainer for October.", "USD",
-  [["Social media retainer (October)", 1, 800]], 20, -6, "PAID");
+  [["Social media retainer (October)", 1, 800]], 20, -6, "MARKED_AS_PAID"); // like the sandbox seed: recorded, not paid via PayPal
 seed({ business: "Helio Studio", contact: "Mira Novak" }, "mira@heliostudio.co", "English",
   "Explainer video storyboard; quick, friendly communication.", "USD",
   [["Storyboard frames", 12, 35], ["Script polish", 1, 90]], 3, 11, "SENT");

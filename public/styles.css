@@ -120,7 +120,14 @@ main { max-width: 1240px; margin: 0 auto; padding: 0 16px 48px; }
 .eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); animation: pulse 2s infinite; }
 .hero h1 { font-family: var(--display); font-weight: 400; font-size: clamp(42px, 6.4vw, 72px); line-height: 1; letter-spacing: -0.02em; }
 .hero h1 em { color: var(--accent); }
-.hero-copy p { margin-top: 16px; color: var(--muted); font-size: 17.5px; max-width: 560px; }
+.hero-copy p { margin-top: 16px; color: var(--muted); font-size: 17px; max-width: 580px; }
+.hero-points { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; max-width: 580px; }
+.hero-points li { position: relative; padding-left: 26px; font-size: 14.5px; color: var(--muted); }
+.hero-points li::before {
+  content: ""; position: absolute; left: 0; top: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' fill='none' stroke='%235b4cf0' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px no-repeat;
+}
+.hero-points b { color: var(--ink); font-weight: 600; }
 .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
 .hero-actions .btn { height: 46px; padding: 0 20px; font-size: 15px; border-radius: 12px; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent); } }
@@ -373,6 +380,17 @@ textarea { resize: vertical; }
 @keyframes feedIn { from { opacity: 0; transform: translateY(-6px); } }
 
 .grid-card { padding: 0; overflow: hidden; }
+
+/* Tabs under the KPIs */
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: 12px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.tab { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--font); padding: 8px 16px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-panel { display: grid; gap: 16px; }
+.tab-panel[hidden] { display: none; }
+.tab-panel .recovery-plan { margin: 0; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 .recovery-plan { margin: 0 0 20px; padding: 20px; }
 .recovery-plan .mini-head { align-items: flex-start; gap: 16px; }
 .recovery-plan .mini-head p { margin: 5px 0 0; font-size: 13px; }

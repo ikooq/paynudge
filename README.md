@@ -2,7 +2,7 @@
 
 **An AI receivables agent for freelancers and small businesses.** Paste a client conversation or drop a chat screenshot, in any language. AI (GPT-OSS 120B and Qwen 3.8 on Groq) drafts the invoice, the **PayPal Invoicing API** creates and sends it, and PayNudge follows up with AI-written reminders until the client pays.
 
-**Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq; the free instance may take up to a minute to wake up)
+**Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq on free plans. A GitHub Action pings it every 10 minutes to keep it awake; if it was asleep anyway, the first load can take up to a minute.)
 
 > Built for the PayPal AI Hackathon "Build What's Next with PayPal and AI".
 
@@ -51,6 +51,14 @@ For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DE
 | Dashboard and copilot data | `GET /v2/invoicing/invoices` |
 | Invoice details for a reminder | `GET /v2/invoicing/invoices/{id}` |
 | Send the AI-written reminder | `POST /v2/invoicing/invoices/{id}/remind` |
+| Instant payment updates | Webhook `INVOICING.INVOICE.PAID` (also `CANCELLED`, `REFUNDED`) → `POST /api/paypal/webhook` |
+| Prove a webhook is genuine | `POST /v1/notifications/verify-webhook-signature` |
+
+**Payment updates.** With `PAYPAL_WEBHOOK_ID` set, PayPal notifies PayNudge when an invoice is paid. The server verifies every delivery with PayPal before using it, then pushes the update to open dashboards (Server-Sent Events), so the "just paid" moment appears immediately. Without a webhook the app falls back to polling PayPal every 4–15 seconds; the header chip shows which mode is active.
+
+To enable it: PayPal Developer Dashboard → Apps & Credentials → your sandbox app → **Add Webhook**, URL `https://<your-app>/api/paypal/webhook`, events `Invoicing invoice paid`, `cancelled`, `refunded`. Copy the webhook ID into `PAYPAL_WEBHOOK_ID`.
+
+**What "Collected" means.** PayPal status `PAID` counts as *paid via PayPal*. `MARKED_AS_PAID` is a payment the seller recorded manually (the sandbox seed script creates one such invoice); the dashboard shows the two amounts separately.
 
 PayPal is the source of truth: PayNudge has no database. The AI's deal summary and the client's language are kept in the invoice's private `memo` field, so later reminders have that context.
 
@@ -63,7 +71,9 @@ PayNudge runs on **Groq's free plan** with two open models:
 
 The sample chats include English, Russian and Spanish. The model can resolve a relative payment date when its reference date is clear; dates and amounts always need human review.
 
-For a reproducible check against the configured live model, run `npm run evaluate-ai` while the app is running with AI credentials. It sends four synthetic conversations covering cancelled work, an unapproved quote, an unknown delivery date and a missing email; it consumes AI quota. These cases are not a general accuracy score, and a person must still verify every draft.
+**Measured check:** on 16 hand-written client chats in English, Russian, Spanish and Kazakh (cancelled items, an unapproved quote, a price changed later, "$1.5k", hourly rates, a deposit already paid, a discount, yen, an email in a signature, missing email, explicit and unknown due dates), the live model got **16/16 chats fully correct** (total, currency, items, email, due date, required warnings), **18/18 line items carried a quote that really appears in the chat**, median **2.5 s** per draft. Full table: [docs/AI-EVAL.md](docs/AI-EVAL.md). Reproduce with `npm run evaluate-ai` while the app runs with AI credentials (consumes AI quota).
+
+These are synthetic examples written by us, not real customer data: they show behaviour on known edge cases, not general accuracy. A person must still verify every draft, which is why every line item shows its source quote.
 
 | Feature | Input | Output |
 |---|---|---|
@@ -141,11 +151,21 @@ npm run seed
 
 ## Deploy to Render
 
-The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY`.
+The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`). `.github/workflows/keep-warm.yml` keeps the free instance awake; change its URL if you deploy your own copy.
+
+## Known limitations
+
+This is a hackathon prototype, and we prefer to say so plainly:
+
+- **One seller, no login.** The demo runs on one PayPal sandbox account shared by every visitor. Connecting each user's own PayPal account would need PayPal's partner onboarding and a user database.
+- **Reminder history is not durable on the free host.** It lives in a local file that Render's free plan can wipe on redeploy. Production needs a database.
+- **Screenshot reading depends on a free vision quota.** When Groq's vision model is out of quota, the in-browser OCR fallback works but makes character mistakes, so the text must be reviewed.
+- **No user research yet.** We have not measured time saved or faster payment with real freelancers; the AI check above uses synthetic chats.
+- **Demo data.** The sandbox contains backdated seed invoices and one manually recorded payment so the dashboard has history; real PayPal payments are shown separately as "paid via PayPal".
 
 ## Tools used
 
-- **PayPal Developer Platform:** Invoicing API v2 in the sandbox environment
+- **PayPal Developer Platform:** Invoicing API v2 and Webhooks (with signature verification) in the sandbox environment
 - **Groq API** (free plan): GPT-OSS 120B extracts invoices, writes reminders and answers copilot questions with strict structured output. Qwen 3.8 27B transcribes chat screenshots. GPT-OSS 20B is the fallback.
 - **Google Gemini API** (optional, `@google/genai` SDK): alternative provider
 - **AG Grid Community:** receivables table with sorting, search and pagination

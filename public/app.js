@@ -108,9 +108,9 @@ function modelName(id) {
     .join(" ");
 }
 
-function aiLabel({ model, provider }) {
-  const name = modelName(model);
-  return provider.toLowerCase().includes(name.split(" ")[0].toLowerCase()) ? name : `${name} on ${provider}`;
+// The chip names the provider only; the exact models are in the tooltip (aiTitle).
+function aiLabel({ provider }) {
+  return `AI · ${provider}`;
 }
 
 function aiTitle({ model, visionModel, provider }) {
@@ -129,6 +129,9 @@ async function loadStatus() {
     s.ai.live
       ? `<span class="chip" title="${esc(aiTitle(s.ai))}"><i></i>${esc(aiLabel(s.ai))}</span>`
       : `<span class="chip demo" title="Set GROQ_API_KEY to use the AI"><i></i>AI · demo mode</span>`,
+    s.paypal.webhooks
+      ? `<span class="chip hide-sm" title="PayPal notifies this app through verified webhooks when an invoice is paid"><i></i>Payments: instant</span>`
+      : `<span class="chip hide-sm demo" title="No PayPal webhook configured; the dashboard checks PayPal every few seconds"><i></i>Payments: polling</span>`,
     `<span class="chip hide-sm">Seller: ${esc(s.business)}</span>`,
   ];
   $("#statusChips").innerHTML = chips.join("");
@@ -609,7 +612,7 @@ function celebratePayment(row) {
 // Receivables: KPIs + AG Grid
 // ---------------------------------------------------------------------------------------------
 const STATUS = {
-  PAID: ["ok", "Paid"], MARKED_AS_PAID: ["ok", "Paid"], PAID_EXTERNAL: ["ok", "Paid"],
+  PAID: ["ok", "Paid via PayPal"], MARKED_AS_PAID: ["neutral", "Recorded paid"], PAID_EXTERNAL: ["neutral", "Paid outside"],
   SENT: ["info", "Sent"], UNPAID: ["info", "Unpaid"], SHARED: ["info", "Shared"],
   PARTIALLY_PAID: ["warn", "Part paid"], PAYMENT_PENDING: ["warn", "Pending"],
   SCHEDULED: ["neutral", "Scheduled"], DRAFT: ["neutral", "Draft"], CANCELLED: ["neutral", "Cancelled"],
@@ -746,13 +749,41 @@ function setupGrid() {
     state.grid.deselectAll();
     state.grid.onFilterChanged();
     renderAging(state.rows);
-    $("#gridGuidance").textContent = `Showing ${BUCKETS[state.agingBucket].label} open invoices. Select rows to prepare reminders.`;
+    $("#gridGuidance").innerHTML = `Showing ${esc(BUCKETS[state.agingBucket].label)} open invoices. Select rows to prepare reminders. <button type="button" class="link-btn" data-clear-aging>Show all invoices</button>`;
+    selectTab("invoices");
   });
-  $("#clearAging").addEventListener("click", () => {
+  const clearAging = () => {
     state.agingBucket = null;
     state.grid.onFilterChanged();
     renderAging(state.rows);
     $("#gridGuidance").textContent = "Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.";
+  };
+  $("#clearAging").addEventListener("click", clearAging);
+  $("#gridGuidance").addEventListener("click", (e) => {
+    if (e.target.closest("[data-clear-aging]")) clearAging();
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tabs under the KPIs: Invoices (default) · Insights & activity · Ask AI
+// ---------------------------------------------------------------------------------------------
+const TABS = ["invoices", "insights", "ask"];
+function selectTab(name, focus = false) {
+  for (const t of TABS) {
+    const on = t === name;
+    const tab = $(`#tab-${t}`);
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    $(`#panel-${t}`).hidden = !on;
+    if (on && focus) tab.focus();
+  }
+}
+function setupTabs() {
+  for (const t of TABS) $(`#tab-${t}`).addEventListener("click", () => selectTab(t));
+  $(".tabs").addEventListener("keydown", (e) => {
+    const i = TABS.findIndex((t) => $(`#tab-${t}`).getAttribute("aria-selected") === "true");
+    if (e.key === "ArrowRight") selectTab(TABS[(i + 1) % TABS.length], true);
+    else if (e.key === "ArrowLeft") selectTab(TABS[(i + TABS.length - 1) % TABS.length], true);
   });
 }
 
@@ -760,10 +791,16 @@ function renderKpis(k) {
   const out = fmtTotals(k.outstanding);
   const over = fmtTotals(k.overdue);
   const coll = fmtTotals(k.collected);
+  const viaPayPal = fmtTotals(k.collectedViaPayPal || {});
+  const recorded = fmtTotals(k.collectedRecorded || {});
+  const hasRecorded = Object.values(k.collectedRecorded || {}).some((v) => v > 0);
+  const collectedNote = hasRecorded
+    ? `${viaPayPal.main} paid via PayPal · ${recorded.main} recorded manually`
+    : coll.extra || "Paid via PayPal";
   $("#kpis").innerHTML = `
     <div class="kpi"><span>Outstanding</span><strong>${out.main}</strong><small>${out.extra || `${k.openCount} open invoice${k.openCount === 1 ? "" : "s"}`}</small></div>
     <div class="kpi ${k.overdueCount ? "bad" : ""}"><span>Overdue</span><strong>${over.main}</strong><small>${over.extra || `${k.overdueCount} invoice${k.overdueCount === 1 ? "" : "s"} late`}</small></div>
-    <div class="kpi ok"><span>Collected</span><strong>${coll.main}</strong><small>${coll.extra || "Recorded in PayPal"}</small></div>
+    <div class="kpi ok"><span>Collected</span><strong>${coll.main}</strong><small title="PayPal status PAID counts as paid via PayPal; MARKED_AS_PAID is a payment the seller recorded">${esc(collectedNote)}</small></div>
     <div class="kpi"><span>Invoices</span><strong>${k.total}</strong><small>Tracked in PayPal</small></div>`;
 }
 
@@ -1021,6 +1058,7 @@ async function sendAutopilot() {
 function setupAutopilot() {
   $("#autopilotBtn").addEventListener("click", openAutopilot);
   $("#heroAutopilot").addEventListener("click", () => {
+    selectTab("invoices");
     $(".receivables").scrollIntoView({ behavior: "smooth" });
     openAutopilot();
   });
@@ -1178,6 +1216,7 @@ setupCopilot();
 setupNudge();
 setupAutopilot();
 setupGrid();
+setupTabs();
 $("#planBody").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-plan-id]");
   const row = button && state.rows.find((r) => r.id === button.dataset.planId);
@@ -1192,6 +1231,7 @@ $("#planSelect").addEventListener("click", () => {
   state.grid.deselectAll();
   for (const id of state.planIds) state.grid.getRowNode(id)?.setSelected(true);
   renderAging(state.rows);
+  selectTab("invoices");
   $("#gridGuidance").textContent = `${state.planIds.length} plan invoices selected. Choose Prepare reminders to review their messages.`;
   $("#grid").scrollIntoView({ behavior: "smooth", block: "center" });
 });
@@ -1217,6 +1257,11 @@ $("#heroTry").addEventListener("click", () => {
 await loadStatus().catch((e) => toast(e.message, "error"));
 loadSamples();
 loadInvoices();
+// Verified PayPal webhooks reach the page through this stream, so a payment shows up at once.
+if (state.status?.paypal?.webhooks && "EventSource" in window) {
+  const stream = new EventSource("/api/events");
+  stream.onmessage = () => loadInvoices();
+}
 // Poll PayPal every 15 s, or every 4 s while waiting for a payment after sending an invoice.
 let lastPoll = Date.now();
 setInterval(() => {

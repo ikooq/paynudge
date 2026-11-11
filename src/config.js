@@ -58,6 +58,9 @@ export const config = {
     baseUrl: paypalEnv === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com",
     clientId: env.PAYPAL_CLIENT_ID || "",
     clientSecret: env.PAYPAL_CLIENT_SECRET || "",
+    // ID of the webhook registered on the PayPal app (Apps & Credentials > your app > Webhooks).
+    // Without it the app still works and notices payments by polling PayPal.
+    webhookId: env.PAYPAL_WEBHOOK_ID || "",
   },
 
   // AI provider, picked by AI_PROVIDER or by whichever key is set. Without a key the app

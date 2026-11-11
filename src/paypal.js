@@ -37,6 +37,24 @@ async function getAccessToken() {
   return cachedToken;
 }
 
+// Asks PayPal whether a webhook delivery is genuine (POST /v1/notifications/verify-webhook-signature).
+export async function verifyWebhookSignature(headers, event, webhookId) {
+  const h = (name) => headers[name] || headers[name.toLowerCase()] || "";
+  const result = await request("/v1/notifications/verify-webhook-signature", {
+    method: "POST",
+    body: {
+      auth_algo: h("paypal-auth-algo"),
+      cert_url: h("paypal-cert-url"),
+      transmission_id: h("paypal-transmission-id"),
+      transmission_sig: h("paypal-transmission-sig"),
+      transmission_time: h("paypal-transmission-time"),
+      webhook_id: webhookId,
+      webhook_event: event,
+    },
+  });
+  return result?.verification_status === "SUCCESS";
+}
+
 async function request(path, { method = "GET", body, headers = {} } = {}) {
   const token = await getAccessToken();
   const res = await fetch(path.startsWith("http") ? path : `${baseUrl}${path}`, {

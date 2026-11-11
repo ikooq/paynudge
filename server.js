@@ -6,7 +6,7 @@ import { config } from "./src/config.js";
 import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
 import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
 import { publicSamples } from "./src/samples.js";
-import { logEvent, detectPayments, listActivity } from "./src/activity.js";
+import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +60,7 @@ async function allRows() {
 // --- API -------------------------------------------------------------------------------------
 app.get("/api/status", (req, res) => {
   res.json({
-    paypal: { live: config.paypal.live, env: config.paypal.env },
+    paypal: { live: config.paypal.live, env: config.paypal.env, webhooks: Boolean(config.paypal.live && config.paypal.webhookId), lastWebhookAt },
     ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name },
     business: config.business.name,
     build: process.env.RENDER_GIT_COMMIT || null,
@@ -137,6 +137,50 @@ app.post("/api/autopilot/started", (req, res) => {
   const count = Math.max(0, Math.min(50, Number(req.body?.count) || 0));
   logEvent("agent", `Reminder review started for ${count} overdue invoice${count === 1 ? "" : "s"}`);
   res.json({ ok: true });
+});
+
+// PayPal webhooks: PayPal calls this when an invoice is paid, cancelled or refunded.
+// Every delivery is verified with PayPal before anything is logged or pushed to the dashboard.
+let lastWebhookAt = null;
+const WEBHOOK_EVENTS = {
+  "INVOICING.INVOICE.PAID": (inv) => `PayPal confirmed payment of invoice #${inv.number} (${inv.amount}) by webhook`,
+  "INVOICING.INVOICE.CANCELLED": (inv) => `PayPal reports invoice #${inv.number} was cancelled`,
+  "INVOICING.INVOICE.REFUNDED": (inv) => `PayPal reports invoice #${inv.number} was refunded`,
+};
+app.post("/api/paypal/webhook", async (req, res) => {
+  if (!config.paypal.live || !config.paypal.webhookId) return res.status(503).json({ error: "Webhooks are not configured." });
+  const event = req.body || {};
+  let genuine = false;
+  try {
+    genuine = await paypal.verifyWebhookSignature(req.headers, event, config.paypal.webhookId);
+  } catch (err) {
+    console.error("Webhook verification failed", err.message);
+    return res.status(502).json({ error: "Could not verify the webhook with PayPal." });
+  }
+  if (!genuine) return res.status(400).json({ error: "Webhook signature is not valid." });
+  lastWebhookAt = new Date().toISOString();
+  const describe = WEBHOOK_EVENTS[event.event_type];
+  if (describe) {
+    const invoice = event.resource?.invoice || event.resource || {};
+    const amount = invoice.amount ? `${invoice.amount.value} ${invoice.amount.currency_code}` : "amount in PayPal";
+    const info = { number: invoice.detail?.invoice_number || invoice.id || "?", amount };
+    logEvent(event.event_type === "INVOICING.INVOICE.PAID" ? "payment" : "paypal", describe(info), { invoiceId: invoice.id, viaWebhook: true });
+    broadcast({ type: event.event_type, invoiceId: invoice.id });
+  }
+  res.json({ ok: true }); // acknowledge quickly, also for event types we don't use
+});
+
+// Live stream for open dashboards (Server-Sent Events): pushes webhook news without polling delay.
+app.get("/api/events", (req, res) => {
+  res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  res.flushHeaders();
+  res.write("retry: 5000\n\n");
+  const unsubscribe = subscribe((message) => res.write(`data: ${JSON.stringify(message)}\n\n`));
+  const ping = setInterval(() => res.write(": ping\n\n"), 25000);
+  req.on("close", () => {
+    clearInterval(ping);
+    unsubscribe();
+  });
 });
 
 // Agent activity feed: what the AI and PayPal did, newest first
