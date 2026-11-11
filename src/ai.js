@@ -44,7 +44,7 @@ async function fetchWithRetry(url, options, attempts = 2) {
 }
 
 // `schema` is optional: without it the model answers in plain text (used for transcription).
-async function callOpenAICompatible(model, { system, text, images = [], schema, name, effort = ai.reasoningEffort }) {
+async function callOpenAICompatible(model, { system, text, images = [], schema, name, effort = ai.reasoningEffort, maxCompletionTokens }) {
   const user = images.length
     ? [
         { type: "text", text },
@@ -62,6 +62,7 @@ async function callOpenAICompatible(model, { system, text, images = [], schema, 
       ],
       ...(schema ? { response_format: { type: "json_schema", json_schema: { name, strict: true, schema } } } : {}),
       ...(effort ? { reasoning_effort: effort } : {}),
+      ...(maxCompletionTokens ? { max_completion_tokens: maxCompletionTokens } : {}),
     }),
   });
   const body = await res.json().catch(() => ({}));
@@ -154,7 +155,10 @@ async function transcribeScreenshots(images) {
       system: "You transcribe screenshots of chat conversations. Output only the transcript, nothing else.",
       text: "Transcribe every message in these chat screenshots, in order. One message per line as `Sender: message`. Keep the original language and copy names, amounts, currencies, emails and dates exactly. If a screenshot is not a conversation, describe its text content instead.",
       images: images.slice(0, ai.maxImages),
-      effort: "",
+      // Qwen's default reasoning and output budget can exceed the free tier's token limit
+      // even for a short screenshot. This call only transcribes; it does not need reasoning.
+      effort: ai.id === "groq" && ai.visionModel === "qwen/qwen3.8-27b" ? "none" : "",
+      maxCompletionTokens: ai.id === "groq" ? 1500 : undefined,
     });
     return String(transcript).replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   } catch (err) {
