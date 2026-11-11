@@ -586,6 +586,7 @@ function setupGrid() {
   state.grid = agGrid.createGrid($("#grid"), {
     columnDefs,
     rowData: [],
+    rowSelection: { mode: "multiRow", enableClickSelection: false },
     theme: gridTheme(),
     rowHeight: 60,
     headerHeight: 44,
@@ -751,6 +752,7 @@ function apSteps(active) {
 
 function apCard(item, i) {
   const r = item.row;
+  const recentContact = r.lastSent && Date.now() - Date.parse(r.lastSent) < 2 * 864e5;
   const state_ =
     item.status === "writing" ? `<span class="state"><span class="spinner"></span> writing…</span>`
     : item.status === "sending" ? `<span class="state"><span class="spinner"></span> sending…</span>`
@@ -766,7 +768,7 @@ function apCard(item, i) {
     <div class="ap-top">
       <input type="checkbox" data-i="${i}" ${item.include ? "checked" : ""} ${item.status === "sent" ? "disabled" : ""} aria-label="Include ${esc(r.client)}">
       <b>${esc(r.client)}</b>
-      <span class="meta">#${esc(r.number)} · ${fmt(r.due, r.currency)} · ${r.daysOverdue} days late · ${esc(r.language)}</span>
+      <span class="meta">#${esc(r.number)} · ${fmt(r.due, r.currency)} · ${r.daysOverdue} days late · ${esc(r.language)}${r.lastSent ? ` · PayPal last sent ${esc(fmtDate(r.lastSent.slice(0, 10)))}` : " · no send date available"}${recentContact ? " · recent contact: review before sending" : ""}</span>
       <span class="pill ${item.tone === "final" ? "bad" : item.tone === "firm" ? "warn" : "info"}">${item.tone}</span>
       ${state_}
     </div>
@@ -792,12 +794,13 @@ async function openAutopilot() {
   apSteps(0);
   $("#apHint").textContent = "Nothing is sent until you approve.";
   try {
+    const selectedIds = new Set(state.grid?.getSelectedRows().map((row) => row.id) || []);
     await loadInvoices();
-    const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
-    ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: true, status: "writing", subject: "", note: "" }));
+    const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0 && (!selectedIds.size || selectedIds.has(r.id))).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
+    ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: !(row.lastSent && Date.now() - Date.parse(row.lastSent) < 2 * 864e5), status: "writing", subject: "", note: "" }));
     $("#apSummary").textContent = overdue.length
-      ? `The agent found ${overdue.length} overdue invoice${overdue.length > 1 ? "s" : ""}. Tone follows how late each one is; each message is written in the client's language.`
-      : "The agent reviewed every open invoice in PayPal.";
+      ? `Review up to ${overdue.length} overdue invoice${overdue.length > 1 ? "s" : ""}. Recent PayPal contact is unchecked by default; check the history before approving.`
+      : selectedIds.size ? "None of the selected invoices are overdue." : "No overdue invoices found.";
     api("/api/autopilot/started", { method: "POST", body: { count: overdue.length } }).then(loadActivity).catch(() => {});
     apSteps(overdue.length ? 2 : 5);
     apRender();

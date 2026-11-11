@@ -72,11 +72,17 @@ app.post("/api/invoices", async (req, res) => {
   const { invoice, draft } = buildPayPalInvoice(req.body?.draft || {}, config.business);
   const created = await paypal.createDraftInvoice(invoice);
   const hasEmail = Boolean(draft.client.email);
-  const payerUrl = await paypal.sendInvoice(created.id, {
-    subject: `Invoice from ${config.business.name}`,
-    note: draft.note_to_client || undefined,
-    sendToRecipient: hasEmail,
-  });
+  let payerUrl;
+  try {
+    payerUrl = await paypal.sendInvoice(created.id, {
+      subject: `Invoice from ${config.business.name}`,
+      note: draft.note_to_client || undefined,
+      sendToRecipient: hasEmail,
+    });
+  } catch (err) {
+    console.error("Invoice created but sending failed", created.id, err.message);
+    return res.status(502).json({ error: `PayPal created invoice ${created.id}, but sending could not be confirmed. Check PayPal before retrying to avoid a duplicate.` });
+  }
   const fresh = await paypal.getInvoice(created.id);
   const row = toRow(fresh);
   logEvent(
@@ -124,6 +130,8 @@ app.post("/api/invoices/:id/remind", async (req, res) => {
   const subject = String(req.body?.subject || "").trim().slice(0, 200);
   const note = String(req.body?.note || "").trim().slice(0, 1000);
   if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });
+  const current = toRow(await paypal.getInvoice(req.params.id));
+  if (current.due <= 0) return res.status(409).json({ error: "This invoice no longer has an outstanding balance. Refresh the dashboard before sending." });
   await paypal.remindInvoice(req.params.id, { subject, note });
   const who = String(req.body?.client || "the client").slice(0, 80);
   logEvent("paypal", `PayPal emailed a reminder to ${who}${req.body?.number ? ` for invoice #${String(req.body.number).slice(0, 12)}` : ""}`, {

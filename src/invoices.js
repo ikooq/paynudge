@@ -68,12 +68,11 @@ export function buildPayPalInvoice(draft, business) {
   if (d.client.email) billing.email_address = d.client.email;
 
   // PayPal rejects due dates before the invoice date.
-  if (d.due_date && d.due_date < todayISO()) d.due_date = "";
+  if (d.due_date && d.due_date < todayISO()) throw Object.assign(new Error("The due date is in the past. Choose a current or future date before sending."), { status: 400 });
 
-  const memo = [
-    `PayNudge memo: ${d.summary}`,
-    `Conversation language: ${d.conversation_language}`,
-  ].join("\n");
+  const languageLine = `Conversation language: ${d.conversation_language.slice(0, 80)}`;
+  const memoPrefix = "PayNudge memo: ";
+  const memo = `${memoPrefix}${d.summary.slice(0, 500 - memoPrefix.length - languageLine.length - 1)}\n${languageLine}`;
 
   const invoice = {
     detail: {
