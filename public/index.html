@@ -92,12 +92,14 @@
           <div class="thumbs" id="thumbs"></div>
         </div>
         <p class="muted data-notice" id="dataNotice">Checking how this demo processes data…</p>
+        <p class="muted data-notice" id="ocrStatus" role="status" hidden></p>
         <div class="composer-actions">
           <label class="btn ghost">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-2h6l2 2h3v12H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
             Add screenshot
             <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
           </label>
+          <button class="btn ghost" id="ocrBtn" type="button" hidden>Read screenshot locally</button>
           <button class="btn primary" id="extractBtn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" /></svg>
             Draft invoice with AI

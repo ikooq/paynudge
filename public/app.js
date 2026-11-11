@@ -212,6 +212,55 @@ function renderThumbs() {
     });
     wrap.append(el);
   });
+  $("#ocrBtn").hidden = state.images.length === 0;
+}
+
+async function readScreenshotsLocally() {
+  const images = [...state.images];
+  if (!images.length) return;
+  const btn = $("#ocrBtn");
+  const status = $("#ocrStatus");
+  btn.disabled = true;
+  $("#extractBtn").disabled = true;
+  status.hidden = false;
+  status.textContent = "Loading local OCR (English, Russian and Spanish). First use downloads language data and may take a while.";
+  let worker;
+  try {
+    if (!window.Tesseract) await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/vendor/tesseract/tesseract.min.js";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Could not load OCR files."));
+      document.head.append(script);
+    });
+    worker = await window.Tesseract.createWorker(["eng", "rus", "spa"], 1, {
+      workerPath: "/vendor/tesseract/worker.min.js",
+      corePath: "/vendor/tesseract-core",
+      langPath: "https://tessdata.projectnaptha.com/4.0.0_fast",
+    });
+    const parts = [];
+    for (const [index, img] of images.entries()) {
+      status.textContent = `Reading screenshot ${index + 1} of ${images.length} on your device…`;
+      const result = await worker.recognize(img.preview);
+      const text = result.data.text.trim();
+      if (!text) throw new Error(`No text was found in screenshot ${index + 1}.`);
+      parts.push(text);
+    }
+    const field = $("#chatInput");
+    field.value = [field.value.trim(), ...parts].filter(Boolean).join("\n\n");
+    state.images = state.images.filter((img) => !images.includes(img));
+    renderThumbs();
+    status.textContent = state.status?.ai.live
+      ? "OCR text is ready for review. Correct any mistakes before drafting; the recognized text will be sent to the AI provider."
+      : "OCR text is ready for review. Correct any mistakes before drafting; this is demo mode with no live AI.";
+    field.focus();
+  } catch (err) {
+    status.textContent = `Local OCR could not finish: ${err.message}. You can paste the conversation as text.`;
+  } finally {
+    if (worker) await worker.terminate();
+    btn.disabled = false;
+    $("#extractBtn").disabled = false;
+  }
 }
 
 function setupComposer() {
@@ -238,6 +287,7 @@ function setupComposer() {
     addFiles(e.dataTransfer.files);
   });
   $("#extractBtn").addEventListener("click", extract);
+  $("#ocrBtn").addEventListener("click", readScreenshotsLocally);
   $("#chatInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) extract();
   });

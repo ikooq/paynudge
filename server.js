@@ -20,6 +20,8 @@ if (process.env.RENDER === "true") app.set("trust proxy", 1);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(here, "public")));
 app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
+app.use("/vendor/tesseract", express.static(path.join(here, "node_modules/tesseract.js/dist")));
+app.use("/vendor/tesseract-core", express.static(path.join(here, "node_modules/tesseract.js-core")));
 
 // --- Small per-IP rate limit for the endpoints that call the AI -------------------------------
 const hits = new Map();

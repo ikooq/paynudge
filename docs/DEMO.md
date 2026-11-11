@@ -12,7 +12,7 @@ Use only PayPal sandbox accounts and fictional conversations. The deployed demo 
    > Client: I approve the logo design for $1. Please invoice BUYER_SANDBOX_EMAIL. Payment is due on receipt.  
    > Freelancer: Confirmed. Thank you!
 
-5. Record an actual sandbox payment at least once before filming. If the vision model's quota is exhausted, use the pasted conversation and say what is shown; do not imply the screenshot feature was tested in that run.
+5. Record an actual sandbox payment at least once before filming. If the vision model's quota is exhausted, use pasted text or **Read screenshot locally**. Review the OCR text carefully and say which method is shown; do not imply the vision model succeeded when it did not.
 
 ## Suggested sequence (under three minutes)
 

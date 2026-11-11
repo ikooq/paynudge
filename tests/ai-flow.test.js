@@ -62,5 +62,5 @@ test("AI extraction shows only excerpts found in the source or screenshot transc
   visionLimited = true;
   const limited = await fetch(`${base}/api/extract`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ images: [{ media_type: "image/png", data: "dGVzdA==" }] }) });
   assert.equal(limited.status, 429);
-  assert.match((await limited.json()).error, /Paste the chat as text/);
+  assert.match((await limited.json()).error, /Read screenshot locally/);
 });
