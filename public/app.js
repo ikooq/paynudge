@@ -40,8 +40,28 @@ async function api(path, { method = "GET", body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.repeatConfirmationRequired = data.repeatConfirmationRequired === true;
+    throw err;
+  }
   return data;
+}
+
+async function sendReviewedReminder(row, subject, note) {
+  const path = `/api/invoices/${encodeURIComponent(row.id)}/remind`;
+  const body = { subject, note, client: row.client, number: row.number };
+  try {
+    return await api(path, { method: "POST", body });
+  } catch (err) {
+    if (!err.repeatConfirmationRequired || !confirm(`${err.message}\n\nHave you checked PayPal and confirmed you want to send another reminder to ${row.client}?`)) throw err;
+    return api(path, { method: "POST", body: { ...body, confirmRepeat: true } });
+  }
+}
+
+function recentReminder(row) {
+  const h = row.reminderHistory;
+  return Boolean(h && (h.status !== "sent" || Date.now() - Date.parse(h.at) < 48 * 3600_000));
 }
 
 function fmt(amount, currency = "USD") {
@@ -798,7 +818,7 @@ function apSteps(active) {
 
 function apCard(item, i) {
   const r = item.row;
-  const recentContact = r.lastSent && Date.now() - Date.parse(r.lastSent) < 2 * 864e5;
+  const recentContact = (r.lastSent && Date.now() - Date.parse(r.lastSent) < 2 * 864e5) || recentReminder(r);
   const state_ =
     item.status === "writing" ? `<span class="state"><span class="spinner"></span> writing…</span>`
     : item.status === "sending" ? `<span class="state"><span class="spinner"></span> sending…</span>`
@@ -814,7 +834,7 @@ function apCard(item, i) {
     <div class="ap-top">
       <input type="checkbox" data-i="${i}" ${item.include ? "checked" : ""} ${item.status === "sent" ? "disabled" : ""} aria-label="Include ${esc(r.client)}">
       <b>${esc(r.client)}</b>
-      <span class="meta">#${esc(r.number)} · ${fmt(r.due, r.currency)} · ${r.daysOverdue} days late · ${esc(r.language)}${r.lastSent ? ` · PayPal last sent ${esc(fmtDate(r.lastSent.slice(0, 10)))}` : " · no send date available"}${recentContact ? " · recent contact: review before sending" : ""}</span>
+      <span class="meta">#${esc(r.number)} · ${fmt(r.due, r.currency)} · ${r.daysOverdue} days late · ${esc(r.language)}${r.lastSent ? ` · PayPal last sent ${esc(fmtDate(r.lastSent.slice(0, 10)))}` : " · no send date available"}${r.reminderHistory ? ` · reminder ${r.reminderHistory.status === "sent" ? "sent" : "unconfirmed"} ${esc(fmtDate(r.reminderHistory.at.slice(0, 10)))}` : ""}${recentContact ? " · review before sending" : ""}</span>
       <span class="pill ${item.tone === "final" ? "bad" : item.tone === "firm" ? "warn" : "info"}">${item.tone}</span>
       ${state_}
     </div>
@@ -843,7 +863,7 @@ async function openAutopilot() {
     const selectedIds = new Set(state.grid?.getSelectedRows().map((row) => row.id) || []);
     await loadInvoices();
     const overdue = state.rows.filter((r) => r.due > 0 && r.daysOverdue > 0 && (selectedIds.size ? selectedIds.has(r.id) : state.agingBucket === null || BUCKETS[state.agingBucket].test(r))).sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 8);
-    ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: !(row.lastSent && Date.now() - Date.parse(row.lastSent) < 2 * 864e5), status: "writing", subject: "", note: "" }));
+    ap.items = overdue.map((row) => ({ row, tone: toneFor(row), include: !recentReminder(row) && !(row.lastSent && Date.now() - Date.parse(row.lastSent) < 2 * 864e5), status: "writing", subject: "", note: "" }));
     $("#apSummary").textContent = overdue.length
       ? `Review up to ${overdue.length} overdue invoice${overdue.length > 1 ? "s" : ""}. Recent PayPal contact is unchecked by default; check the history before approving.`
       : selectedIds.size ? "None of the selected invoices are overdue." : "No overdue invoices found.";
@@ -882,10 +902,7 @@ async function sendAutopilot() {
     item.status = "sending";
     apRender();
     try {
-      await api(`/api/invoices/${encodeURIComponent(item.row.id)}/remind`, {
-        method: "POST",
-        body: { subject: item.subject, note: item.note, client: item.row.client, number: item.row.number },
-      });
+      await sendReviewedReminder(item.row, item.subject, item.note);
       item.status = "sent";
     } catch (err) {
       Object.assign(item, { status: "error", error: err.message });
@@ -989,7 +1006,8 @@ function openNudge(row, tone = "friendly") {
   state.nudge = { row };
   $("#nudgeTitle").textContent = `Nudge ${row.client}`;
   const when = row.daysOverdue > 0 ? `${row.daysOverdue} days overdue` : row.dueDate ? `due ${fmtDate(row.dueDate)}` : "open";
-  $("#nudgeMeta").textContent = `Invoice #${row.number} · ${fmt(row.due, row.currency)} · ${when} · written in ${row.language}`;
+  const history = row.reminderHistory ? ` · last reminder ${row.reminderHistory.status === "sent" ? "sent" : "unconfirmed"} ${fmtDate(row.reminderHistory.at.slice(0, 10))}` : "";
+  $("#nudgeMeta").textContent = `Invoice #${row.number} · ${fmt(row.due, row.currency)} · ${when} · written in ${row.language}${history}`;
   $(`#nudgeForm input[name=tone][value=${tone}]`).checked = true;
   $("#nudgeDialog").showModal();
   writeNudge();
@@ -1038,10 +1056,7 @@ function setupNudge() {
     btn.textContent = "Sending…";
     try {
       const row = state.nudge.row;
-      await api(`/api/invoices/${encodeURIComponent(row.id)}/remind`, {
-        method: "POST",
-        body: { subject: $("#nudgeSubject").value, note: $("#nudgeNote").value, client: row.client, number: row.number },
-      });
+      await sendReviewedReminder(row, $("#nudgeSubject").value, $("#nudgeNote").value);
       $("#nudgeDialog").close();
       toast(`Reminder sent via PayPal${row.email ? ` to ${row.email}` : ""}`);
       loadInvoices();

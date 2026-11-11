@@ -7,6 +7,7 @@ import { extractDraft, draftReminder, askCopilot, AIError } from "./src/ai.js";
 import { buildPayPalInvoice, normalizeDraft, toRow, computeKpis, todayISO } from "./src/invoices.js";
 import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity } from "./src/activity.js";
+import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -33,7 +34,7 @@ function aiLimit(req, res, next) {
 
 async function allRows() {
   const today = todayISO();
-  const rows = (await paypal.listInvoices()).map((inv) => toRow(inv, today));
+  const rows = (await paypal.listInvoices()).map((inv) => { const row = toRow(inv, today); return { ...row, reminderHistory: reminderHistory(row.id) }; });
   return rows.sort((a, b) => (b.invoiceDate || "").localeCompare(a.invoiceDate || "") || b.number.localeCompare(a.number));
 }
 
@@ -126,7 +127,7 @@ app.get("/api/activity", async (req, res) => {
 
 // 4) AI-written reminder for one invoice (not sent yet: the user reviews it first)
 app.post("/api/invoices/:id/reminder-draft", aiLimit, async (req, res) => {
-  const row = toRow(await paypal.getInvoice(req.params.id));
+  const row = { ...toRow(await paypal.getInvoice(req.params.id)), reminderHistory: reminderHistory(req.params.id) };
   const tone = ["friendly", "firm", "final"].includes(req.body?.tone) ? req.body.tone : "friendly";
   const reminder = await draftReminder({ row, tone });
   logEvent("ai", `AI wrote a ${tone} reminder in ${row.language} for ${row.client} (#${row.number})`, { invoiceId: row.id });
@@ -134,13 +135,32 @@ app.post("/api/invoices/:id/reminder-draft", aiLimit, async (req, res) => {
 });
 
 // 5) Send the approved reminder through PayPal
+const reminderLocks = new Set();
 app.post("/api/invoices/:id/remind", async (req, res) => {
   const subject = String(req.body?.subject || "").trim().slice(0, 200);
   const note = String(req.body?.note || "").trim().slice(0, 1000);
   if (!subject || !note) return res.status(400).json({ error: "Subject and message are required." });
-  const current = toRow(await paypal.getInvoice(req.params.id));
-  if (current.due <= 0) return res.status(409).json({ error: "This invoice no longer has an outstanding balance. Refresh the dashboard before sending." });
-  await paypal.remindInvoice(req.params.id, { subject, note });
+  const id = req.params.id;
+  if (reminderLocks.has(id)) return res.status(409).json({ error: "A reminder is already being sent for this invoice." });
+  reminderLocks.add(id);
+  try {
+    const current = toRow(await paypal.getInvoice(id));
+    if (current.due <= 0) return res.status(409).json({ error: "This invoice no longer has an outstanding balance. Refresh the dashboard before sending." });
+    const previous = reminderHistory(id);
+    if (previous && (previous.status !== "sent" || Date.now() - Date.parse(previous.at) < 48 * 3600_000) && req.body?.confirmRepeat !== true) {
+      return res.status(409).json({ error: "A reminder was sent recently or its delivery is unconfirmed. Review PayPal before sending another.", repeatConfirmationRequired: true });
+    }
+    await recordReminder(id, "pending");
+    try {
+      await paypal.remindInvoice(id, { subject, note });
+    } catch (err) {
+      // Keep pending: a timeout does not prove that PayPal failed to send.
+      throw err;
+    }
+    await recordReminder(id, "sent");
+  } finally {
+    reminderLocks.delete(id);
+  }
   const who = String(req.body?.client || "the client").slice(0, 80);
   logEvent("paypal", `PayPal emailed a reminder to ${who}${req.body?.number ? ` for invoice #${String(req.body.number).slice(0, 12)}` : ""}`, {
     invoiceId: req.params.id,

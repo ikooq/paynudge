@@ -25,6 +25,8 @@ The AI never sends anything on its own. Every invoice and reminder is reviewed b
 
 If an invoice request is interrupted, PayNudge keeps the reviewed draft and its operation ID in the current browser tab's session storage. Retrying uses the same PayPal request ID and checks the existing invoice before sending. The draft is locked while its outcome is uncertain. Check PayPal before choosing to start over: request IDs have a provider-defined retention period, and a closed tab or cleared session storage loses the recovery information. Demo-mode data is in memory and disappears on server restart.
 
+PayNudge records reminder attempts locally (invoice ID, timestamp, and delivery state only). A recent reminder or an unconfirmed attempt is excluded from batch selection and requires explicit confirmation before another send. The default `data/reminders.json` survives a local process restart, but Render's free filesystem is ephemeral; use `REMINDER_HISTORY_FILE` on persistent storage for durable history. This is a single-instance journal, not a multi-instance database or a complete record of reminders sent outside PayNudge. Always check PayPal if delivery is unconfirmed.
+
 ### Try it in 60 seconds (live demo)
 
 1. Click **Try it with a sample chat**: the AI drafts an invoice from a real-looking client chat.
