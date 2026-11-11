@@ -1013,7 +1013,7 @@ async function sendAutopilot() {
   apRender();
   const sent = chosen.filter((x) => x.status === "sent").length;
   $("#apHint").textContent = `${sent} reminder${sent === 1 ? "" : "s"} sent by PayPal.`;
-  toast(`Autopilot: PayPal sent ${sent} reminder${sent === 1 ? "" : "s"}`);
+  toast(`PayPal sent ${sent} approved reminder${sent === 1 ? "" : "s"}`);
   if (sent) confetti();
   loadInvoices();
 }

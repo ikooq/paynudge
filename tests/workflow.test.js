@@ -25,7 +25,8 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
   });
   const base = `http://127.0.0.1:${port}`;
   let ready = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
+  // Up to 20 s: the first run after a clean install starts Node and loads modules cold.
+  for (let attempt = 0; attempt < 400; attempt++) {
     try { if ((await fetch(`${base}/api/status`)).ok) { ready = true; break; } } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

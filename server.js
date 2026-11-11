@@ -135,7 +135,7 @@ app.get("/api/invoices", async (req, res) => {
 // The collections autopilot runs in the browser (so each step shows live); it reports its start here.
 app.post("/api/autopilot/started", (req, res) => {
   const count = Math.max(0, Math.min(50, Number(req.body?.count) || 0));
-  logEvent("agent", `Collections autopilot reviewed the ledger and picked ${count} overdue invoice${count === 1 ? "" : "s"} to chase`);
+  logEvent("agent", `Reminder review started for ${count} overdue invoice${count === 1 ? "" : "s"}`);
   res.json({ ok: true });
 });
 

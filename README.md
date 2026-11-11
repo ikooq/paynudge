@@ -36,7 +36,7 @@ The shared demo applies in-memory per-client request limits on AI and invoice/re
 
 1. Click **Try it with a sample chat**: the AI drafts an invoice from a real-looking client chat.
 2. Click **Create & send via PayPal**, then **Open client's payment page** to see the real PayPal sandbox invoice.
-3. Click **Collections autopilot** to watch the agent draft reminders for the overdue invoices in English, Russian and Spanish.
+3. Click **Prepare reminders** to have the AI draft reminders for the overdue invoices in English, Russian and Spanish, then review them before PayPal sends anything.
 4. Ask the copilot "Who should I chase first?"
 
 For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DEMO.md).

@@ -46,7 +46,8 @@ test("AI extraction shows only excerpts found in the source or screenshot transc
   });
   const base = `http://127.0.0.1:${port}`;
   let ready = false;
-  for (let i = 0; i < 100; i++) {
+  // Up to 20 s: the first run after a clean install starts Node and loads modules cold.
+  for (let i = 0; i < 400; i++) {
     try { if ((await fetch(`${base}/api/status`)).ok) { ready = true; break; } } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
