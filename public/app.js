@@ -27,6 +27,7 @@ const state = {
   watchUntil: 0, // poll PayPal faster until this time (after an invoice is sent)
   seenActivity: null,
   agingBucket: null,
+  planIds: [],
   pendingInvoice: null,
 };
 
@@ -706,6 +707,7 @@ async function loadInvoices({ flashId, announce } = {}) {
     state.rows = data.rows;
     renderKpis(data.kpis);
     renderAging(data.rows);
+    renderPlan(data.rows);
     newlyPaid.forEach(celebratePayment);
     loadActivity();
     if (state.grid) {
@@ -739,6 +741,21 @@ const BUCKETS = [
   { label: "8–21 days", test: (r) => r.daysOverdue >= 8 && r.daysOverdue <= 21 },
   { label: "21+ days", test: (r) => r.daysOverdue > 21 },
 ];
+
+function recentPayPalContact(row) {
+  return Boolean(row.lastSent && Date.now() - Date.parse(row.lastSent) < 48 * 3600_000);
+}
+
+function renderPlan(rows) {
+  const overdue = rows.filter((r) => r.due > 0 && r.daysOverdue > 0);
+  const held = overdue.filter((r) => recentReminder(r) || recentPayPalContact(r));
+  const candidates = overdue.filter((r) => !recentReminder(r) && !recentPayPalContact(r)).sort((a, b) => b.daysOverdue - a.daysOverdue || a.number.localeCompare(b.number)).slice(0, 3);
+  state.planIds = candidates.map((r) => r.id);
+  $("#planSelect").disabled = !candidates.length;
+  const body = $("#planBody");
+  body.innerHTML = candidates.length ? `<div class="plan-list">${candidates.map((r, i) => `<div class="plan-item"><span class="plan-rank">0${i + 1}</span><div class="plan-details"><b>${esc(r.client)} · #${esc(r.number)}</b><small>${r.daysOverdue} days overdue · ${esc(toneFor(r))} reminder · ${esc(r.language)}</small></div><span class="plan-amount">${fmt(r.due, r.currency)}</span><button type="button" class="btn ghost small" data-plan-id="${esc(r.id)}">Review reminder</button></div>`).join("")}</div>` : '<p class="muted plan-note">No invoices are ready for this plan. Check recent or unconfirmed contacts below before sending another reminder.</p>';
+  body.insertAdjacentHTML("beforeend", `<p class="muted plan-note">${held.length} overdue invoice${held.length === 1 ? "" : "s"} set aside because of recent or unconfirmed contact. Ranking uses days overdue, not a prediction or currency conversion. Review every message before sending.</p>`);
+}
 
 function renderAging(rows) {
   $("#clearAging").hidden = state.agingBucket === null;
@@ -1086,6 +1103,23 @@ setupCopilot();
 setupNudge();
 setupAutopilot();
 setupGrid();
+$("#planBody").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-plan-id]");
+  const row = button && state.rows.find((r) => r.id === button.dataset.planId);
+  if (row) openNudge(row, toneFor(row));
+});
+$("#planSelect").addEventListener("click", () => {
+  if (!state.grid || !state.planIds.length) return;
+  state.agingBucket = null;
+  state.grid.onFilterChanged();
+  $("#gridSearch").value = "";
+  state.grid.setGridOption("quickFilterText", "");
+  state.grid.deselectAll();
+  for (const id of state.planIds) state.grid.getRowNode(id)?.setSelected(true);
+  renderAging(state.rows);
+  $("#gridGuidance").textContent = `${state.planIds.length} plan invoices selected. Choose Prepare reminders to review their messages.`;
+  $("#grid").scrollIntoView({ behavior: "smooth", block: "center" });
+});
 try {
   const pending = JSON.parse(sessionStorage.getItem("paynudge.pendingInvoice") || "null");
   if (pending?.operationId && pending?.draft) {

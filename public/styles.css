@@ -369,6 +369,17 @@ textarea { resize: vertical; }
 @keyframes feedIn { from { opacity: 0; transform: translateY(-6px); } }
 
 .grid-card { padding: 0; overflow: hidden; }
+.recovery-plan { margin: 0 0 20px; }
+.recovery-plan .mini-head { align-items: flex-start; gap: 16px; }
+.recovery-plan .mini-head p { margin: 5px 0 0; font-size: 13px; }
+.plan-list { display: grid; gap: 8px; margin-top: 14px; }
+.plan-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.plan-item .plan-rank { color: var(--accent); font-weight: 700; min-width: 24px; }
+.plan-item .plan-details { flex: 1; min-width: 0; }
+.plan-item .plan-details small { display: block; color: var(--muted); margin-top: 3px; }
+.plan-item .plan-amount { font-weight: 700; white-space: nowrap; }
+.plan-note { margin: 10px 0 0; font-size: 12px; }
+@media (max-width: 600px) { .recovery-plan .mini-head { flex-wrap: wrap; } .plan-item { flex-wrap: wrap; } }
 .ag-row.just-paid { animation: paidFlash 2.4s ease; }
 @keyframes paidFlash { 0%, 60% { background: var(--ok-soft); } }
 
