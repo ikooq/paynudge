@@ -79,6 +79,7 @@ app.post("/api/invoices", async (req, res) => {
   const created = await paypal.createDraftInvoice(invoice, { requestId: operationId });
   const hasEmail = Boolean(draft.client.email);
   let payerUrl;
+  let fresh;
   try {
     const existing = await paypal.getInvoice(created.id);
     if (existing.status !== "DRAFT") payerUrl = toRow(existing).payerUrl;
@@ -88,11 +89,11 @@ app.post("/api/invoices", async (req, res) => {
       sendToRecipient: hasEmail,
       requestId: createHash("sha256").update(`send:${operationId}`).digest("hex").slice(0, 32),
     });
+    fresh = await paypal.getInvoice(created.id);
   } catch (err) {
     console.error("Invoice created but sending failed", created.id, err.message);
     return res.status(502).json({ error: `Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.` });
   }
-  const fresh = await paypal.getInvoice(created.id);
   const row = toRow(fresh);
   logEvent(
     "paypal",

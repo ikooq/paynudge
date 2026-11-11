@@ -58,8 +58,21 @@ function splitName(full) {
 
 // Builds the request body for POST /v2/invoicing/invoices.
 export function buildPayPalInvoice(draft, business) {
+  const bad = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
+  if (!Array.isArray(draft.items) || !draft.items.length) bad("The invoice needs at least one line item.");
+  if (draft.items.length > 100) bad("An invoice can have at most 100 line items.");
+  if (draft.items.some((item) => !String(item.name || "").trim() || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0 || !Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) < 0)) {
+    bad("Each item needs a name, a positive quantity, and a valid non-negative price.");
+  }
+  if (draft.items.some((item) => Math.abs(Number(item.quantity) * 100 - Math.round(Number(item.quantity) * 100)) > 1e-7 || Math.abs(Number(item.unit_price) * 100 - Math.round(Number(item.unit_price) * 100)) > 1e-7)) {
+    bad("Quantities and prices may have at most two decimal places.");
+  }
+  if (draft.currency && !/^[A-Za-z]{3}$/.test(String(draft.currency))) bad("Enter a three-letter currency code.");
+  if (draft.client?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.client.email)) bad("Enter a valid client email address.");
+  if (draft.due_date && (!/^\d{4}-\d{2}-\d{2}$/.test(draft.due_date) || Number.isNaN(Date.parse(`${draft.due_date}T00:00:00Z`)) || new Date(`${draft.due_date}T00:00:00Z`).toISOString().slice(0, 10) !== draft.due_date)) bad("Enter a valid due date.");
   const d = normalizeDraft(draft, business.defaultCurrency);
-  if (!d.items.length) throw Object.assign(new Error("The invoice needs at least one line item."), { status: 400 });
+  if (d.total <= 0) bad("The invoice total must be greater than zero.");
+  if (ZERO_DECIMAL.has(d.currency) && d.items.some((item) => !Number.isInteger(item.unit_price))) bad(`${d.currency} prices must be whole amounts.`);
 
   const billing = {};
   const name = splitName(d.client.name);

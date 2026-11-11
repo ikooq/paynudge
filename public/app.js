@@ -42,6 +42,7 @@ async function api(path, { method = "GET", body } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status;
     err.repeatConfirmationRequired = data.repeatConfirmationRequired === true;
     throw err;
   }
@@ -440,6 +441,12 @@ async function sendInvoice() {
     await loadInvoices({ flashId: row.id });
   } catch (err) {
     toast(err.message, "error");
+    if (err.status === 400) {
+      state.pendingInvoice = null;
+      sessionStorage.removeItem("paynudge.pendingInvoice");
+      renderDraft();
+      return;
+    }
     btn.disabled = false;
     updateSendHint();
     $("#sendHint").textContent = err.message;
