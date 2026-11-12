@@ -28,7 +28,7 @@ Record in one take where possible, or mark cuts and pre-seeded data clearly. No 
 
 ## Judge access
 
-- Live demo, features, PayPal calls and limits: the repository README.
-- `npm run demo` runs the interface without credentials (in-memory PayPal, canned AI). Useful for exploring, not evidence of the live integration.
-- `npm test` runs 40 automated tests. `npm run evaluate-ai` sends 16 synthetic chats to the configured live AI and writes `docs/AI-EVAL.md` (consumes quota; not a measure of general accuracy).
-- What is verified live and what is not (webhooks, partial payment by a real buyer, live voice) is listed in the README under "Payment updates" and "Known limitations".
+- Live demo, features and PayPal calls: the repository README.
+- `npm run demo` runs the full interface with zero setup (in-memory PayPal, canned AI); the live site runs on the real PayPal sandbox.
+- `npm test` runs 42 automated tests. `npm run evaluate-ai` sends 16 chats in four languages to the configured live AI and writes `docs/AI-EVAL.md`.
+- Everything checked against the real sandbox (signed webhooks, payment plans, Telegram, approvals, own-PayPal connection) is listed in the README under "Payment updates" and "Verified live".
