@@ -4,7 +4,7 @@
 
 **Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq on free plans. On Render the server requests its own public URL every 10 minutes so it stays awake; if it was restarted, the first load can take up to a minute.)
 
-**Demo video (2:58):** https://youtu.be/7a9xhKxIdfc
+**Demo video (2:58):** https://youtu.be/J-J2dkYSYvA
 
 > Built for the PayPal AI Hackathon "Build What's Next with PayPal and AI".
 
