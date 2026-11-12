@@ -13,8 +13,8 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
   await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
-  const historyFile = path.join(tmp, "reminders.json");
-  const child = spawn(process.execPath, ["server.js", "--demo"], { env: { ...process.env, PORT: String(port), REMINDER_HISTORY_FILE: historyFile, RENDER: "true", RENDER_GIT_COMMIT: "test-commit", AI_RATE_LIMIT: "1" }, stdio: "ignore" });
+  const storeFile = path.join(tmp, "store.json");
+  const child = spawn(process.execPath, ["server.js", "--demo"], { env: { ...process.env, PORT: String(port), STORE_FILE: storeFile, RENDER: "true", RENDER_GIT_COMMIT: "test-commit", AI_RATE_LIMIT: "1" }, stdio: "ignore" });
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = new Promise((resolve) => child.once("exit", resolve));
@@ -68,7 +68,7 @@ test("reviewed invoice, retry, reminder safety, and simulated payment", async (t
   const repeat = await json(reminderUrl, reminder);
   assert.equal(repeat.status, 409);
   assert.equal(repeat.data.repeatConfirmationRequired, true);
-  assert.equal(JSON.parse(await readFile(historyFile, "utf8"))[created.data.row.id].status, "sent");
+  assert.equal(JSON.parse(await readFile(storeFile, "utf8")).reminders[created.data.row.id].status, "sent");
   assert.equal((await json(reminderUrl, { ...reminder, confirmRepeat: true })).status, 200);
   const payment = await fetch(base + created.data.payerUrl, { method: "POST", redirect: "manual" });
   assert.equal(payment.status, 302);
