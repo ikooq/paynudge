@@ -11,6 +11,8 @@ import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 import { describeWebhookEvent } from "./src/webhook-events.js";
 import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
 import { buildQueue, getQueue, markItem } from "./src/queue.js";
+import { computeMetrics } from "./src/metrics.js";
+import { store } from "./src/store.js";
 import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -209,6 +211,12 @@ app.get("/api/events", (req, res) => {
     clearInterval(ping);
     unsubscribe();
   });
+});
+
+// Collection metrics from the seller's own PayPal invoices and reminder journal.
+app.get("/api/metrics", async (req, res) => {
+  const reminders = Object.fromEntries(store.list("reminders").map(({ key, value }) => [key, value]));
+  res.json(computeMetrics(await allRows(), reminders));
 });
 
 // Agent activity feed: what the AI and PayPal did, newest first

@@ -4,6 +4,7 @@ import { statusLabel } from "./grid.js";
 import { loadActivity, renderAging, renderPlan } from "./insights.js";
 import { plan } from "./plan.js";
 import { loadQueue } from "./queue.js";
+import { loadMetrics } from "./metrics.js";
 
 // ---------------------------------------------------------------------------------------------
 // Tabs under the KPIs: Invoices (default) · Insights & activity · Ask AI
@@ -22,6 +23,7 @@ export function selectTab(name, focus = false) {
 export function setupTabs() {
   for (const t of TABS) $(`#tab-${t}`).addEventListener("click", () => selectTab(t));
   $("#tab-approvals").addEventListener("click", () => loadQueue());
+  $("#tab-insights").addEventListener("click", () => loadMetrics());
   $(".receivables .tabs").addEventListener("keydown", (e) => {
     const i = TABS.findIndex((t) => $(`#tab-${t}`).getAttribute("aria-selected") === "true");
     if (e.key === "ArrowRight") selectTab(TABS[(i + 1) % TABS.length], true);
@@ -114,6 +116,7 @@ export async function loadInvoices({ flashId, announce } = {}) {
     renderPlan(data.rows);
     newlyPaid.forEach(celebratePayment);
     loadActivity();
+    if (!$("#panel-insights").hidden) loadMetrics();
     if (state.grid) {
       state.grid.setGridOption("loading", false);
       state.grid.setGridOption("rowData", data.rows);

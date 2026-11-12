@@ -218,6 +218,14 @@
           <div id="agingChart" class="aging-chart" aria-label="Filter invoices by days past due"></div>
           <button type="button" class="btn ghost small" id="clearAging" hidden>Show all invoices</button>
         </article>
+        <article class="card metrics" aria-labelledby="metricsTitle">
+          <div class="mini-head">
+            <h3 id="metricsTitle">Collection metrics</h3>
+            <span class="muted">From your PayPal invoices</span>
+          </div>
+          <div id="metricsBody" class="metrics-grid"></div>
+          <p class="muted metrics-note">Only invoices paid through PayPal count towards speed. With a handful of invoices these are anecdotes, not trends; each number shows how many invoices it is based on.</p>
+        </article>
         <article class="card activity">
           <div class="mini-head">
             <h3>Agent activity</h3>
