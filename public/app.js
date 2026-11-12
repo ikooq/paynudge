@@ -74,6 +74,13 @@ $("#heroTry").addEventListener("click", () => {
   if (sample) setTimeout(extract, 450);
 });
 await loadStatus().catch((e) => toast(e.message, "error"));
+// Back from PayPal partner onboarding.
+{
+  const params = new URLSearchParams(location.search);
+  if (params.has("connected")) toast("PayPal account connected. Invoices from this browser now use it.", "ok");
+  if (params.has("connect_error")) toast(params.get("connect_error"), "error");
+  if (params.has("connected") || params.has("connect_error")) history.replaceState(null, "", location.pathname);
+}
 loadSamples();
 loadInvoices();
 // Verified PayPal webhooks, when PayPal sends them, reach the page through this stream; polling stays on.

@@ -12,6 +12,8 @@ import { describeWebhookEvent } from "./src/webhook-events.js";
 import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
 import { buildQueue, getQueue, markItem } from "./src/queue.js";
 import { computeMetrics } from "./src/metrics.js";
+import { currentSeller, runAsSeller, DEFAULT_SELLER } from "./src/context.js";
+import { canConnect, sellerFromCookie, sessionCookie, clearCookie, startOnboarding, finishOnboarding, renameSeller, sellerRecord } from "./src/accounts.js";
 import { telegram, createBot, createLinkCode, linkedChats, unlinkChat, verifySecret } from "./src/telegram.js";
 import { store } from "./src/store.js";
 import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
@@ -25,6 +27,11 @@ const app = express();
 // per-client limits don't accidentally treat every judge as the same visitor.
 if (process.env.RENDER === "true") app.set("trust proxy", 1);
 app.use(express.json({ limit: "20mb" }));
+// Every request runs as the connected seller (signed cookie) or the shared demo seller.
+app.use((req, res, next) => {
+  req.seller = sellerFromCookie(req.headers.cookie);
+  runAsSeller(req.seller || DEFAULT_SELLER, next);
+});
 app.use(express.static(path.join(here, "public")));
 app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
 app.use("/vendor/tesseract", express.static(path.join(here, "node_modules/tesseract.js/dist")));
@@ -61,7 +68,15 @@ function aiLimit(req, res, next) {
 // The seller a request acts for: the connected PayPal seller, or the shared demo seller.
 const sellerOf = (req) => req.seller?.id || "default";
 // Business details for invoices: the connected seller's name when there is one.
-const currentBusiness = () => config.business;
+const currentBusiness = () => {
+  const s = currentSeller();
+  return s.merchantId ? { ...config.business, name: s.name, email: s.email } : config.business;
+};
+// Context for actions that don't come from a browser request (Telegram bot).
+const contextFor = (sellerId) => {
+  const r = sellerRecord(sellerId);
+  return r ? { id: sellerId, merchantId: r.merchantId, name: r.name, email: r.email } : DEFAULT_SELLER;
+};
 
 async function allRows() {
   const today = todayISO();
@@ -74,7 +89,8 @@ app.get("/api/status", (req, res) => {
   res.json({
     paypal: { live: config.paypal.live, env: config.paypal.env, webhooks: Boolean(config.paypal.live && config.paypal.webhookId), lastWebhookAt },
     ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name, voice: !config.ai.live || audioSupported() },
-    business: config.business.name,
+    business: currentBusiness().name,
+    seller: { connected: Boolean(req.seller), name: currentBusiness().name, email: req.seller?.email || "", merchantId: req.seller?.merchantId || "", canConnect: canConnect() },
     build: process.env.RENDER_GIT_COMMIT || null,
   });
 });
@@ -441,13 +457,35 @@ if (config.ai.live) {
   setInterval(daily, 3600_000).unref();
 }
 
+// 5g) Connect a seller's own PayPal account (partner onboarding). Without it, the shared demo seller.
+const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+app.post("/api/account/connect", writeLimit, async (req, res) => res.json({ url: await startOnboarding(paypal, publicBase(req)) }));
+app.get("/api/account/return", async (req, res) => {
+  try {
+    const record = await finishOnboarding(paypal, String(req.query.tracking || ""));
+    res.setHeader("Set-Cookie", sessionCookie(record.merchantId));
+    runAsSeller({ id: `pp:${record.merchantId}`, ...record }, () => logEvent("agent", `PayPal account ${record.email || record.merchantId} connected`));
+    res.redirect("/?connected=1");
+  } catch (err) {
+    res.redirect(`/?connect_error=${encodeURIComponent(err.message.slice(0, 200))}`);
+  }
+});
+app.post("/api/account/name", writeLimit, async (req, res) => {
+  if (!req.seller) return res.status(400).json({ error: "Connect a PayPal account first." });
+  res.json({ seller: await renameSeller(req.seller.merchantId, req.body?.name) });
+});
+app.post("/api/account/disconnect", (req, res) => {
+  res.setHeader("Set-Cookie", clearCookie());
+  res.json({ ok: true });
+});
+
 // 5f) Telegram bot: forward a client chat to the bot, get the draft, approve with one tap.
 const bot = createBot({
-  extract: ({ text, images, seller }) => draftFromConversation({ text, images, seller, via: " (Telegram)" }),
+  extract: ({ text, images, seller }) => runAsSeller(contextFor(seller), () => draftFromConversation({ text, images, seller, via: " (Telegram)" })),
   transcribe: transcribeAudio,
   voice: !config.ai.live || audioSupported(),
-  createInvoice: (draft, operationId) => createAndSendInvoice(draft, operationId),
-  sellerName: () => currentBusiness().name,
+  createInvoice: (draft, operationId, seller) => runAsSeller(contextFor(seller), () => createAndSendInvoice(draft, operationId)),
+  sellerName: (seller) => sellerRecord(seller)?.name || config.business.name,
 });
 app.get("/api/telegram", (req, res) => res.json({
   enabled: telegram.enabled, username: telegram.username, mode: telegram.mode, chats: linkedChats(sellerOf(req)),
