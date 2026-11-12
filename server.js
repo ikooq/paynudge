@@ -13,7 +13,7 @@ import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/
 import { buildQueue, getQueue, markItem } from "./src/queue.js";
 import { computeMetrics } from "./src/metrics.js";
 import { currentSeller, runAsSeller, DEFAULT_SELLER } from "./src/context.js";
-import { canConnect, sellerFromCookie, sessionCookie, clearCookie, startOnboarding, finishOnboarding, renameSeller, sellerRecord } from "./src/accounts.js";
+import { canConnect, canUseKeys, sellerFromCookie, sessionCookie, clearCookie, startOnboarding, finishOnboarding, renameSeller, sellerRecord, sellerContextFor, storeKeyOf, connectWithKeys, forgetSeller } from "./src/accounts.js";
 import { telegram, createBot, createLinkCode, linkedChats, unlinkChat, verifySecret } from "./src/telegram.js";
 import { store } from "./src/store.js";
 import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
@@ -70,12 +70,13 @@ const sellerOf = (req) => req.seller?.id || "default";
 // Business details for invoices: the connected seller's name when there is one.
 const currentBusiness = () => {
   const s = currentSeller();
-  return s.merchantId ? { ...config.business, name: s.name, email: s.email } : config.business;
+  // An own-keys seller's invoices come from their own PayPal account, so PayPal fills in the invoicer email.
+  return s.id !== DEFAULT_SELLER.id ? { ...config.business, name: s.name, email: s.email || "" } : config.business;
 };
 // Context for actions that don't come from a browser request (Telegram bot).
 const contextFor = (sellerId) => {
-  const r = sellerRecord(sellerId);
-  return r ? { id: sellerId, merchantId: r.merchantId, name: r.name, email: r.email } : DEFAULT_SELLER;
+  const key = storeKeyOf(sellerId);
+  return (key && sellerContextFor(key)) || DEFAULT_SELLER;
 };
 
 async function allRows() {
@@ -90,7 +91,7 @@ app.get("/api/status", (req, res) => {
     paypal: { live: config.paypal.live, env: config.paypal.env, webhooks: Boolean(config.paypal.live && config.paypal.webhookId), lastWebhookAt },
     ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name, voice: !config.ai.live || audioSupported() },
     business: currentBusiness().name,
-    seller: { connected: Boolean(req.seller), name: currentBusiness().name, email: req.seller?.email || "", merchantId: req.seller?.merchantId || "", canConnect: canConnect() },
+    seller: { connected: Boolean(req.seller), kind: req.seller?.kind || "", name: currentBusiness().name, email: req.seller?.email || "", merchantId: req.seller?.merchantId || "", canConnect: canConnect(), canUseKeys: canUseKeys() },
     build: process.env.RENDER_GIT_COMMIT || null,
   });
 });
@@ -494,11 +495,21 @@ app.get("/api/account/return", async (req, res) => {
     res.redirect(`/?connect_error=${encodeURIComponent(err.message.slice(0, 200))}`);
   }
 });
+// Own PayPal app: the seller's sandbox REST keys. Verified with a real token and invoice list call.
+app.post("/api/account/keys", writeLimit, async (req, res) => {
+  const key = await connectWithKeys(req.body || {}, (credentials) =>
+    runAsSeller({ id: "verify", merchantId: "", credentials }, () => paypal.request("/v2/invoicing/invoices?page=1&page_size=1")));
+  const seller = sellerContextFor(key);
+  res.setHeader("Set-Cookie", sessionCookie(key));
+  runAsSeller(seller, () => logEvent("agent", `Own PayPal sandbox app connected for ${seller.name}`));
+  res.json({ ok: true, name: seller.name });
+});
 app.post("/api/account/name", writeLimit, async (req, res) => {
   if (!req.seller) return res.status(400).json({ error: "Connect a PayPal account first." });
-  res.json({ seller: await renameSeller(req.seller.merchantId, req.body?.name) });
+  res.json({ seller: await renameSeller(storeKeyOf(req.seller.id), req.body?.name) });
 });
-app.post("/api/account/disconnect", (req, res) => {
+app.post("/api/account/disconnect", writeLimit, async (req, res) => {
+  if (req.seller && req.body?.forget === true) await forgetSeller(storeKeyOf(req.seller.id));
   res.setHeader("Set-Cookie", clearCookie());
   res.json({ ok: true });
 });

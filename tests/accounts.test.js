@@ -73,3 +73,24 @@ test("the activity feed of one seller never shows another seller's events", () =
   assert.deepEqual(a, ["only for A"]);
   assert.deepEqual(listActivity([]).map((e) => e.text), [], "the shared demo seller sees neither");
 });
+
+test("own PayPal app keys: verified, stored encrypted, restored from the cookie", async () => {
+  await assert.rejects(accounts.connectWithKeys({ clientId: "short", clientSecret: "x" }, async () => {}), /Paste the Client ID and Secret/);
+  await assert.rejects(accounts.connectWithKeys({ clientId: "test-client".padEnd(24, "x").replace("test-client", "test-client"), clientSecret: "s".repeat(30) }, async () => { throw Object.assign(new Error("no"), { status: 401 }); }), /rejected these keys/);
+  const creds = { clientId: "AbCdEf0123456789_seller-app", clientSecret: "SeCrEt0123456789_seller-secret" };
+  let verified = null;
+  const key = await accounts.connectWithKeys({ ...creds, name: "Northbay Studio" }, async (c) => { verified = c; });
+  assert.deepEqual(verified, creds);
+  assert.match(key, /^k-[0-9a-f]{24}$/);
+  const { store } = await import("../src/store.js");
+  const record = store.get("sellers", key);
+  assert.equal(record.clientId, creds.clientId);
+  assert.doesNotMatch(JSON.stringify(record), /SeCrEt0123456789/, "the secret is never stored in clear text");
+  const seller = accounts.sellerFromCookie(accounts.sessionCookie(key).split(";")[0]);
+  assert.equal(seller.id, key);
+  assert.equal(seller.name, "Northbay Studio");
+  assert.deepEqual(seller.credentials, creds);
+  await accounts.forgetSeller(key);
+  assert.equal(accounts.sellerFromCookie(accounts.sessionCookie(key).split(";")[0]), null);
+});
+

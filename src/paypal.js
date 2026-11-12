@@ -16,15 +16,16 @@ export class PayPalError extends Error {
   }
 }
 
-let cachedToken = null;
-let tokenExpiresAt = 0;
+// One cached token per PayPal app: the shared demo app, or a seller's own app (their keys).
+const tokens = new Map(); // clientId -> { token, expiresAt }
 
-async function getAccessToken() {
-  if (cachedToken && Date.now() < tokenExpiresAt - 60_000) return cachedToken;
+export async function getAccessToken(creds = { clientId, clientSecret }) {
+  const cached = tokens.get(creds.clientId);
+  if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token;
   const res = await fetch(`${baseUrl}/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      Authorization: "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
+      Authorization: "Basic " + Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     // PayPal reuses a cached token for up to 9 hours; ignoreCache makes it include
@@ -33,9 +34,8 @@ async function getAccessToken() {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new PayPalError(res.status, body);
-  cachedToken = body.access_token;
-  tokenExpiresAt = Date.now() + body.expires_in * 1000;
-  return cachedToken;
+  tokens.set(creds.clientId, { token: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 });
+  return body.access_token;
 }
 
 // Asks PayPal whether a webhook delivery is genuine (POST /v1/notifications/verify-webhook-signature).
@@ -64,8 +64,11 @@ export function authAssertion(merchantId) {
 }
 
 export async function request(path, { method = "GET", body, headers = {}, asPartner = false } = {}) {
-  const token = await getAccessToken();
-  const merchantId = asPartner ? "" : currentSeller().merchantId;
+  // A seller who connected their own PayPal app is called with that app's token; a partner-onboarded
+  // seller through this app with an auth assertion; everyone else as the shared demo seller.
+  const seller = asPartner ? null : currentSeller();
+  const token = await getAccessToken(seller?.credentials || undefined);
+  const merchantId = seller && !seller.credentials ? seller.merchantId : "";
   if (merchantId) headers = { "PayPal-Auth-Assertion": authAssertion(merchantId), ...headers };
   const res = await fetch(path.startsWith("http") ? path : `${baseUrl}${path}`, {
     method,
