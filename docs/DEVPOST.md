@@ -45,7 +45,7 @@ Nothing is sent without the seller's approval.
 - **Hosting:** Render (Blueprint from `render.yaml`), with the server pinging its own public URL so the free instance stays awake.
 - **Storage:** Neon Postgres for reminder history, price lists, recurring schedules, the approval queue and Telegram links (PayPal stays the source of truth for invoices).
 - **Telegram Bot API:** webhook with a secret-token check; chats link to a seller with a one-time code.
-- **Multi-seller groundwork:** PayPal partner onboarding (Partner Referrals API) and `PayPal-Auth-Assertion` calls, built and tested with a simulated PayPal; the real sandbox refused the Partner Referrals call because the app isn't an approved PayPal partner, so it stays off.
+- **Your own PayPal:** a seller connects their own PayPal sandbox REST app (Client ID and Secret, verified with PayPal, stored encrypted, never shown again); every PayPal call from their browser then uses their own token, and their price list, queue, recurring invoices and Telegram link are kept separately. PayPal partner onboarding is also built, but the sandbox refuses it without partner approval, so it stays off.
 - **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state, webhook handling and reuse of identical AI drafts; an evaluation script runs selected checks over 16 synthetic chats.
 
 ## AI tools used and how
