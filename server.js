@@ -244,9 +244,21 @@ app.get("/api/events", (req, res) => {
 });
 
 // Collection metrics from the seller's own PayPal invoices and reminder journal.
+// PayPal's invoice list omits payment transactions, so payment dates for paid invoices come from the
+// single-invoice call, cached by invoice ID (a paid invoice's payments don't change).
+const paymentDates = new Map();
 app.get("/api/metrics", async (req, res) => {
   const reminders = Object.fromEntries(store.list("reminders").map(({ key, value }) => [key, value]));
-  res.json(computeMetrics(await allRows(), reminders));
+  const rows = await allRows();
+  const missing = rows.filter((r) => r.paid > 0 && !r.paidAt && !r.firstPaymentAt && !paymentDates.has(r.id)).slice(0, 25);
+  await Promise.all(missing.map(async (r) => {
+    try {
+      const full = toRow(await paypal.getInvoice(r.id));
+      paymentDates.set(r.id, { paidAt: full.paidAt, firstPaymentAt: full.firstPaymentAt });
+    } catch { /* leave it out of the speed figures */ }
+  }));
+  const enriched = rows.map((r) => (paymentDates.has(r.id) && !r.paidAt ? { ...r, ...paymentDates.get(r.id) } : r));
+  res.json(computeMetrics(enriched, reminders));
 });
 
 // Agent activity feed: what the AI and PayPal did, newest first
