@@ -12,6 +12,7 @@ import { describeWebhookEvent } from "./src/webhook-events.js";
 import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
 import { buildQueue, getQueue, markItem } from "./src/queue.js";
 import { computeMetrics } from "./src/metrics.js";
+import { telegram, createBot, createLinkCode, linkedChats, unlinkChat, verifySecret } from "./src/telegram.js";
 import { store } from "./src/store.js";
 import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
 
@@ -59,6 +60,8 @@ function aiLimit(req, res, next) {
 
 // The seller a request acts for: the connected PayPal seller, or the shared demo seller.
 const sellerOf = (req) => req.seller?.id || "default";
+// Business details for invoices: the connected seller's name when there is one.
+const currentBusiness = () => config.business;
 
 async function allRows() {
   const today = todayISO();
@@ -86,15 +89,20 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     .filter((i) => /^image\/(png|jpeg|webp|gif)$/.test(i?.media_type) && typeof i?.data === "string")
     .slice(0, 4);
   if (!text.trim() && !images.length) return res.status(400).json({ error: "Paste a conversation or add a screenshot." });
+  res.json(await draftFromConversation({ text, images, seller: sellerOf(req), via: "" }));
+});
+
+// Shared by the web composer and the Telegram bot: AI extraction, then the seller's price list.
+async function draftFromConversation({ text, images = [], seller, via = "" }) {
   const started = Date.now();
   // Text-only drafts are cached for the day (relative due dates depend on today), so judges
   // clicking the same sample chat don't each spend the shared free AI quota.
-  const catalog = getCatalog(sellerOf(req));
+  const catalog = getCatalog(seller);
   const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${JSON.stringify(catalog)}\n${text}`).digest("hex") : null;
   const cached = cacheKey && draftCache.get(cacheKey);
   if (cached) {
     logEvent("ai", `AI draft for ${cached.client.business_name || cached.client.name || "a client"} reused from an identical chat earlier today`);
-    return res.json(cached);
+    return cached;
   }
   const draft = applyCatalog(normalizeDraft(await extractDraft({ text, images, catalogHint: catalogPromptHint(catalog) }), config.business.defaultCurrency), catalog);
   if (cacheKey) {
@@ -107,10 +115,10 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     : `${/^[aeiou]/i.test(lang) ? "an" : "a"} ${lang} chat`;
   logEvent(
     "ai",
-    `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
+    `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}${via}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
   );
-  res.json(draft);
-});
+  return draft;
+}
 
 // Seller price list (fills missing prices and flags differences in AI drafts).
 app.get("/api/catalog", (req, res) => res.json({ items: getCatalog(sellerOf(req)) }));
@@ -133,7 +141,13 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
     return res.status(400).json({ error: "A valid invoice operation ID is required." });
   }
-  const { invoice, draft } = buildPayPalInvoice(req.body?.draft || {}, config.business);
+  res.status(201).json(await createAndSendInvoice(req.body?.draft || {}, operationId));
+});
+
+// Creates the PayPal invoice for a reviewed draft and sends it (email, or a share link without one).
+// The operation ID is PayPal's request ID, so retrying the same operation never bills twice.
+async function createAndSendInvoice(rawDraft, operationId, { business = currentBusiness() } = {}) {
+  const { invoice, draft } = buildPayPalInvoice(rawDraft, business);
   const created = await paypal.createDraftInvoice(invoice, { requestId: operationId });
   const hasEmail = Boolean(draft.client.email);
   let payerUrl;
@@ -142,7 +156,7 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
     const existing = await paypal.getInvoice(created.id);
     if (existing.status !== "DRAFT") payerUrl = toRow(existing).payerUrl;
     else payerUrl = await paypal.sendInvoice(created.id, {
-      subject: `Invoice from ${config.business.name}`,
+      subject: `Invoice from ${business.name}`,
       note: draft.note_to_client || undefined,
       sendToRecipient: hasEmail,
       requestId: createHash("sha256").update(`send:${operationId}`).digest("hex").slice(0, 32),
@@ -150,7 +164,7 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
     fresh = await paypal.getInvoice(created.id);
   } catch (err) {
     console.error("Invoice created but sending failed", created.id, err.message);
-    return res.status(502).json({ error: `Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.` });
+    throw Object.assign(new Error(`Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.`), { status: 502 });
   }
   const row = toRow(fresh);
   logEvent(
@@ -160,8 +174,8 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
       : `PayPal created a payment link for invoice #${row.number} (${row.client})`,
     { invoiceId: row.id, sent: true },
   );
-  res.status(201).json({ row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail });
-});
+  return { row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail };
+}
 
 // 3) Receivables dashboard data, read live from PayPal
 app.get("/api/invoices", async (req, res) => {
@@ -427,6 +441,31 @@ if (config.ai.live) {
   setInterval(daily, 3600_000).unref();
 }
 
+// 5f) Telegram bot: forward a client chat to the bot, get the draft, approve with one tap.
+const bot = createBot({
+  extract: ({ text, images, seller }) => draftFromConversation({ text, images, seller, via: " (Telegram)" }),
+  transcribe: transcribeAudio,
+  voice: !config.ai.live || audioSupported(),
+  createInvoice: (draft, operationId) => createAndSendInvoice(draft, operationId),
+  sellerName: () => currentBusiness().name,
+});
+app.get("/api/telegram", (req, res) => res.json({
+  enabled: telegram.enabled, username: telegram.username, mode: telegram.mode, chats: linkedChats(sellerOf(req)),
+}));
+app.post("/api/telegram/link", writeLimit, async (req, res) => {
+  if (!telegram.enabled) return res.status(503).json({ error: "The Telegram bot isn't configured on this server (TELEGRAM_BOT_TOKEN)." });
+  res.json(await createLinkCode(sellerOf(req)));
+});
+app.delete("/api/telegram/chats/:chatId", writeLimit, async (req, res) => {
+  await unlinkChat(sellerOf(req), req.params.chatId);
+  res.json({ ok: true });
+});
+app.post("/api/telegram/webhook", (req, res) => {
+  if (!telegram.enabled || !verifySecret(req.get("X-Telegram-Bot-Api-Secret-Token"))) return res.status(401).end();
+  res.json({ ok: true }); // acknowledge at once; Telegram retries slow webhooks
+  bot.handleUpdate(req.body || {}).catch((err) => console.warn("Telegram update failed:", err.message));
+});
+
 // 6) Copilot: questions about receivables, answered from live PayPal data
 app.post("/api/copilot", aiLimit, async (req, res) => {
   const question = String(req.body?.question || "").trim().slice(0, 500);
@@ -480,6 +519,9 @@ app.listen(config.port, () => {
   const vision = config.ai.visionModel ? ` (screenshots: ${config.ai.visionModel})` : "";
   console.log(`  AI:     ${config.ai.live ? `${config.ai.name} · ${config.ai.model}${vision}` : "demo mode (canned responses)"}`);
   keepAwake();
+  bot.start(process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || "")
+    .then(() => telegram.enabled && console.log(`  Telegram: @${telegram.username} (${telegram.mode})`))
+    .catch((err) => console.warn("Telegram bot did not start:", err.message));
 });
 
 // Render's free plan sleeps after 15 minutes without inbound traffic, and GitHub's scheduled
