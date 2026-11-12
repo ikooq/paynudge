@@ -29,6 +29,12 @@ Freelancers close deals in Telegram, WhatsApp and email, often in two or three l
 
 **5. A live receivables desk (AG Grid).** Status read live from PayPal, quick views (open, overdue, on a plan, paid), column filters, a paid-progress bar with ticks for each plan installment, per-currency totals that never mix currencies, CSV export, an aging chart, an activity feed and a copilot that answers "Who should I chase first?" from live PayPal data. When a client pays, the dashboard announces it and the row turns green.
 
+**6. Straight from Telegram.** Forward a client conversation (text, screenshots or a voice note) to the PayNudge bot. It replies with the draft and the client's words behind each line; one tap creates and sends the PayPal invoice and returns the payment link. Chats link to a seller with a one-time code. Tested live: a forwarded chat became sandbox invoice #0010 (690.00 USD).
+
+**7. Today's approvals.** Each morning the agent prepares the day's work: reminders for overdue invoices not contacted recently, payment-plan offers for invoices more than 21 days late, and recurring invoices for regular clients. The seller approves or skips each item; approval runs through the same checked PayPal calls as the manual flows.
+
+**8. Price list and insights.** A seller's price list fills a price the chat left out and flags a chat price that differs from it (the model sees service names, never prices). Insights show median days to pay, share paid on time, money collected on payment plans and payments after a reminder, computed from the seller's own PayPal invoices with the sample size shown.
+
 Nothing is sent without the seller's approval.
 
 ## How we built it
@@ -37,6 +43,9 @@ Nothing is sent without the seller's approval.
 - **Server:** Node.js and Express; PayPal is the source of truth (no database): the deal summary, client language and payment plan live in the invoice's private memo.
 - **Front end:** vanilla JavaScript, AG Grid Community, Tesseract.js for an on-device OCR fallback.
 - **Hosting:** Render (Blueprint from `render.yaml`), with the server pinging its own public URL so the free instance stays awake.
+- **Storage:** Neon Postgres for reminder history, price lists, recurring schedules, the approval queue and Telegram links (PayPal stays the source of truth for invoices).
+- **Telegram Bot API:** webhook with a secret-token check; chats link to a seller with a one-time code.
+- **Multi-seller groundwork:** PayPal partner onboarding (Partner Referrals API) and `PayPal-Auth-Assertion` calls, built and tested with a simulated PayPal but not yet switched on live.
 - **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state, webhook handling and reuse of identical AI drafts; an evaluation script runs selected checks over 16 synthetic chats.
 
 ## AI tools used and how
@@ -64,9 +73,8 @@ Nothing is sent without the seller's approval.
 Matching source excerpts can make a draft easier to review, though they do not prove agreement. Offering partial payments is a possible alternative to a sterner reminder; its impact on collection rates has not been measured.
 
 ## What's next for PayNudge
-- Sign-in and per-seller PayPal connection (partner onboarding), so each freelancer sees only their own invoices.
-- A database for reminder history and plans across devices.
-- Forwarding chats straight from Telegram or WhatsApp.
+- Switching on per-seller PayPal connection (partner onboarding is built; it needs a live end-to-end test with a second business account).
+- WhatsApp alongside Telegram.
 - Testing a single-installment payment by a real buyer, and testing with real freelancers to measure time saved and days-to-paid.
 
 ## Honest limits (shown in the README)
