@@ -63,7 +63,7 @@ For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DE
 
 PayNudge also accepts PayPal webhooks. With `PAYPAL_WEBHOOK_ID` set, the server verifies every delivery with PayPal (`verify-webhook-signature`) before using it and pushes it to open dashboards over Server-Sent Events. On the live demo a forged "invoice paid" request was rejected with `400 Webhook signature is not valid` and never reached the activity feed.
 
-However, we have **not yet seen a real webhook arrive**. In our test (Nov 11, 2026) the webhook was registered for the right URL and events, the sandbox buyer paid invoice #0009, and PayPal's own event list for the app (`GET /v1/notifications/webhooks-events`) stayed empty: the sandbox did not generate an `INVOICING.INVOICE.PAID` event, so there was nothing to deliver. Until a real event is received, treat webhooks as implemented but unverified end to end; polling is the path that is known to work.
+**A real webhook has now arrived.** On Nov 12, 2026 a sandbox buyer paid invoice #0003 ($1,500, with a payment plan offered and partial payments enabled) on PayPal's payment page. Polling showed it as paid first; about 22 seconds later PayPal delivered an `INVOICING.INVOICE.PAID` webhook, the server verified its signature with PayPal and the activity feed recorded it (`lastWebhookAt` in `/api/status`). In an earlier test (Nov 11, invoice #0009) the sandbox emitted no event at all, so webhook delivery from the sandbox is not guaranteed; polling stays the primary path and the webhook is a second, verified signal.
 
 To enable it: PayPal Developer Dashboard → Apps & Credentials → your sandbox app → **Add Webhook**, URL `https://<your-app>/api/paypal/webhook`, events `Invoicing invoice paid`, `cancelled`, `refunded`. Copy the webhook ID into `PAYPAL_WEBHOOK_ID`.
 
@@ -169,7 +169,8 @@ The repo includes `render.yaml`. In Render: New → Blueprint → select this re
 
 This is a hackathon prototype, and we prefer to say so plainly:
 
-- **Webhooks not verified end to end.** The receiver and its signature check work (a forged request is rejected), but the sandbox did not emit an `INVOICING.INVOICE.PAID` event in our test, so payments are currently noticed by polling within 4–15 seconds.
+- **Webhooks are a second signal, not the primary one.** One real signed `INVOICING.INVOICE.PAID` delivery was received and verified (Nov 12), but in an earlier test the sandbox emitted no event, so payments are noticed first by polling within 4–15 seconds.
+- **A partial installment by a real buyer is not yet tested.** A sandbox buyer paid a plan invoice in full through PayPal (Nov 12); paying a single installment has only been tested in demo mode.
 - **One seller, no login.** The demo runs on one PayPal sandbox account shared by every visitor. Connecting each user's own PayPal account would need PayPal's partner onboarding and a user database.
 - **Reminder history is not durable on the free host.** It lives in a local file that Render's free plan can wipe on redeploy. Production needs a database.
 - **Screenshot reading depends on a free vision quota.** When Groq's vision model is out of quota, the in-browser OCR fallback works but makes character mistakes, so the text must be reviewed.
@@ -178,7 +179,7 @@ This is a hackathon prototype, and we prefer to say so plainly:
 
 ## Tools used
 
-- **PayPal Developer Platform:** Invoicing API v2 in the sandbox environment; webhook receiver with signature verification (implemented, not yet seen receiving a real sandbox event)
+- **PayPal Developer Platform:** Invoicing API v2 in the sandbox environment; webhook receiver with signature verification (one real sandbox event received and verified)
 - **Groq API** (free plan): GPT-OSS 120B extracts invoices, writes reminders and payment plans, and answers copilot questions with strict structured output. Qwen 3.8 27B transcribes chat screenshots, Whisper large v3 turbo transcribes voice notes. GPT-OSS 20B is the fallback.
 - **AG Grid Community:** receivables table with quick views, column filters, progress cells, pinned per-currency totals, tooltips, row selection and CSV export
 - **Google Gemini API** (optional, `@google/genai` SDK): alternative provider

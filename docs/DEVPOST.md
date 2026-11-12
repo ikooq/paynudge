@@ -56,7 +56,7 @@ Nothing is sent without the seller's approval.
 
 ## Accomplishments that we're proud of
 - In one run of 16 synthetic chats in English, Russian, Spanish and Kazakh, all 16 passed their selected checks and 18 of 18 extracted items carried a matching quote. Median time was 1.9 seconds. Each case checks only a subset of fields; the result does not establish general accuracy.
-- Real sandbox payments: invoices #0008 and #0009 were paid by a sandbox buyer and shown as paid via PayPal.
+- Real sandbox payments: invoices #0008, #0009 and #0003 were paid by a sandbox buyer and shown as paid via PayPal. For #0003, after an AI payment plan was sent, the dashboard announced the payment and PayPal then delivered a signed `INVOICING.INVOICE.PAID` webhook, which the server verified with PayPal.
 - A real PayPal invoice switched to installments by a payment plan (`allow_partial_payment: true`, minimum $135, schedule 180 + 135 + 135 = 450 USD, message in Russian).
 - English and Russian voice notes turned into correct invoices ($950 and $350).
 
@@ -67,10 +67,10 @@ Matching source excerpts can make a draft easier to review, though they do not p
 - Sign-in and per-seller PayPal connection (partner onboarding), so each freelancer sees only their own invoices.
 - A database for reminder history and plans across devices.
 - Forwarding chats straight from Telegram or WhatsApp.
-- Confirming webhook delivery end to end and testing with real freelancers to measure time saved and days-to-paid.
+- Testing a single-installment payment by a real buyer, and testing with real freelancers to measure time saved and days-to-paid.
 
 ## Honest limits (shown in the README)
-One shared sandbox seller and no login; reminder history on the free host can reset on redeploy; screenshot reading depends on a free vision quota; PayPal webhooks are implemented and verified against forgery, but the sandbox did not emit a real payment event in our test, so payments are detected by polling within 4–15 seconds; partial payment by a real buyer was tested only in demo mode; the AI evaluation uses synthetic chats.
+One shared sandbox seller and no login; reminder history on the free host can reset on redeploy; screenshot reading depends on a free vision quota; one real signed PayPal webhook was received and verified, but the sandbox did not emit an event in an earlier test, so polling (every 4–15 seconds) stays the primary way payments are detected; a sandbox buyer paid a plan invoice in full, but paying a single installment was tested only in demo mode; the AI evaluation uses synthetic chats.
 
 ## Built with
 paypal, paypal-invoicing-api, groq, gpt-oss, qwen, whisper, node.js, express, javascript, ag-grid, tesseract.js, render, github-actions
