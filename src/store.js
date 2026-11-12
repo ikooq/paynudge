@@ -46,7 +46,9 @@ async function loadPostgres() {
   backend = "postgres";
 }
 
-if (env.DATABASE_URL) await loadPostgres();
+// Demo mode never touches a real database: sample data must not mix with a live deployment's.
+const demo = env.DEMO_MODE === "true" || process.argv.includes("--demo");
+if (env.DATABASE_URL && !demo) await loadPostgres();
 else await loadFile();
 
 function persist(collection, key, value) {
