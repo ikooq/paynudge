@@ -10,6 +10,8 @@ import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 import { describeWebhookEvent } from "./src/webhook-events.js";
 import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
+import { buildQueue, getQueue, markItem } from "./src/queue.js";
+import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -359,6 +361,63 @@ app.post("/api/invoices/:id/plan/accept", writeLimit, async (req, res) => {
     res.json({ ok: true, row: toRow(await paypal.getInvoice(id)) });
   } finally { reminderLocks.delete(id); }
 });
+
+// 5d) Recurring invoices: schedules kept by PayNudge; each due occurrence goes to the approval queue.
+app.get("/api/recurring", (req, res) => res.json({ items: listRecurring(sellerOf(req)) }));
+app.post("/api/recurring", writeLimit, async (req, res) => {
+  const schedule = await saveSchedule(sellerOf(req), req.body, req.body?.id);
+  logEvent("agent", `Recurring ${schedule.interval} invoice saved for ${schedule.client.business_name || schedule.client.name}: ${schedule.total.toFixed(2)} ${schedule.currency}, next on ${schedule.nextDate}`);
+  res.json({ schedule });
+});
+app.post("/api/recurring/:id/active", writeLimit, async (req, res) => res.json({ schedule: await setActive(sellerOf(req), req.params.id, req.body?.active) }));
+app.delete("/api/recurring/:id", writeLimit, async (req, res) => {
+  await deleteSchedule(sellerOf(req), req.params.id);
+  res.json({ ok: true });
+});
+app.post("/api/recurring/:id/issued", writeLimit, async (req, res) => {
+  const schedule = await markIssued(sellerOf(req), req.params.id, String(req.body?.forDate || ""), req.body?.invoiceId);
+  res.json({ schedule });
+});
+app.get("/api/recurring/:id/draft", (req, res) => {
+  const schedule = listRecurring(sellerOf(req)).find((s) => s.id === req.params.id);
+  if (!schedule) return res.status(404).json({ error: "That recurring invoice no longer exists." });
+  res.json({ draft: scheduleDraft(schedule), forDate: schedule.nextDate });
+});
+
+// 5e) Daily approval queue: the agent prepares today's reminders, plan offers and recurring
+// invoices; the seller approves or skips each one (approval uses the endpoints above).
+const aiForQueue = { draftReminder, proposePaymentPlan };
+const queueBuilds = new Map();
+async function prepareQueue(seller) {
+  if (!queueBuilds.has(seller)) {
+    const job = (async () => {
+      const rows = await allRows();
+      const queue = await buildQueue({ seller, rows, recurringDue: dueSchedules(seller), ai: aiForQueue });
+      logEvent("agent", `Today's approval queue is ready: ${queue.items.length} item${queue.items.length === 1 ? "" : "s"} to review${queue.skipped.length ? `, ${queue.skipped.length} could not be drafted` : ""}`);
+      return queue;
+    })().finally(() => queueBuilds.delete(seller));
+    queueBuilds.set(seller, job);
+  }
+  return queueBuilds.get(seller);
+}
+app.get("/api/queue", (req, res) => res.json({ queue: getQueue(sellerOf(req)), building: queueBuilds.has(sellerOf(req)) }));
+app.post("/api/queue/build", aiLimit, async (req, res) => {
+  const existing = getQueue(sellerOf(req));
+  if (existing && req.body?.rebuild !== true) return res.json({ queue: existing });
+  res.json({ queue: await prepareQueue(sellerOf(req)) });
+});
+app.post("/api/queue/:itemId", writeLimit, async (req, res) => {
+  const item = await markItem(sellerOf(req), req.params.itemId, req.body?.status, req.body?.result);
+  if (item.status === "skipped") logEvent("agent", `Seller skipped today's ${item.kind} for ${item.client}`, { invoiceId: item.invoiceId });
+  res.json({ item });
+});
+// Prepare the shared seller's queue once a day without anyone opening the page (needs live AI;
+// demo mode builds on first visit instead). Checked hourly; a day's queue is built only once.
+if (config.ai.live) {
+  const daily = () => { if (!getQueue("default")) prepareQueue("default").catch((err) => console.warn("Daily queue failed:", err.message)); };
+  setTimeout(daily, 60_000).unref();
+  setInterval(daily, 3600_000).unref();
+}
 
 // 6) Copilot: questions about receivables, answered from live PayPal data
 app.post("/api/copilot", aiLimit, async (req, res) => {

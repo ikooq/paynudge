@@ -3,11 +3,12 @@ import { celebratePayment } from "./celebrate.js";
 import { statusLabel } from "./grid.js";
 import { loadActivity, renderAging, renderPlan } from "./insights.js";
 import { plan } from "./plan.js";
+import { loadQueue } from "./queue.js";
 
 // ---------------------------------------------------------------------------------------------
 // Tabs under the KPIs: Invoices (default) · Insights & activity · Ask AI
 // ---------------------------------------------------------------------------------------------
-export const TABS = ["invoices", "insights", "ask"];
+export const TABS = ["invoices", "approvals", "insights", "ask"];
 export function selectTab(name, focus = false) {
   for (const t of TABS) {
     const on = t === name;
@@ -20,7 +21,8 @@ export function selectTab(name, focus = false) {
 }
 export function setupTabs() {
   for (const t of TABS) $(`#tab-${t}`).addEventListener("click", () => selectTab(t));
-  $(".tabs").addEventListener("keydown", (e) => {
+  $("#tab-approvals").addEventListener("click", () => loadQueue());
+  $(".receivables .tabs").addEventListener("keydown", (e) => {
     const i = TABS.findIndex((t) => $(`#tab-${t}`).getAttribute("aria-selected") === "true");
     if (e.key === "ArrowRight") selectTab(TABS[(i + 1) % TABS.length], true);
     else if (e.key === "ArrowLeft") selectTab(TABS[(i + TABS.length - 1) % TABS.length], true);

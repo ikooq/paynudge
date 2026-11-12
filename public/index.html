@@ -162,6 +162,7 @@
 
       <div class="tabs" role="tablist" aria-label="Receivables views">
         <button class="tab" role="tab" id="tab-invoices" aria-controls="panel-invoices" aria-selected="true" type="button">Invoices</button>
+        <button class="tab" role="tab" id="tab-approvals" aria-controls="panel-approvals" aria-selected="false" tabindex="-1" type="button">Approvals <span class="tab-count" id="approvalCount" hidden></span></button>
         <button class="tab" role="tab" id="tab-insights" aria-controls="panel-insights" aria-selected="false" tabindex="-1" type="button">Insights &amp; activity</button>
         <button class="tab" role="tab" id="tab-ask" aria-controls="panel-ask" aria-selected="false" tabindex="-1" type="button">Ask AI</button>
       </div>
@@ -192,6 +193,19 @@
         <p class="muted" id="gridGuidance" style="padding: 12px 16px; margin: 0">Select invoices in the table, then prepare reminders. If none are selected, the oldest overdue invoices are used.</p>
         <div id="grid" class="grid"></div>
       </article>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="panel-approvals" aria-labelledby="tab-approvals" hidden>
+        <article class="card approvals" aria-labelledby="approvalsTitle">
+          <div class="card-head approvals-head">
+            <div>
+              <h3 id="approvalsTitle">Today's approvals</h3>
+              <p class="muted" id="approvalsMeta">Each morning the agent prepares reminders, payment-plan offers and recurring invoices. Nothing is sent until you approve it.</p>
+            </div>
+            <button class="btn ghost" type="button" id="approvalsBuild">Prepare today's queue</button>
+          </div>
+          <div id="approvalsList" class="approvals-list" aria-live="polite"></div>
+        </article>
       </div>
 
       <div class="tab-panel" role="tabpanel" id="panel-insights" aria-labelledby="tab-insights" hidden>
