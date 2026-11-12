@@ -45,7 +45,7 @@ Nothing is sent without the seller's approval.
 - **Hosting:** Render (Blueprint from `render.yaml`), with the server pinging its own public URL so the free instance stays awake.
 - **Storage:** Neon Postgres for reminder history, price lists, recurring schedules, the approval queue and Telegram links (PayPal stays the source of truth for invoices).
 - **Telegram Bot API:** webhook with a secret-token check; chats link to a seller with a one-time code.
-- **Multi-seller groundwork:** PayPal partner onboarding (Partner Referrals API) and `PayPal-Auth-Assertion` calls, built and tested with a simulated PayPal but not yet switched on live.
+- **Multi-seller groundwork:** PayPal partner onboarding (Partner Referrals API) and `PayPal-Auth-Assertion` calls, built and tested with a simulated PayPal; the real sandbox refused the Partner Referrals call because the app isn't an approved PayPal partner, so it stays off.
 - **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state, webhook handling and reuse of identical AI drafts; an evaluation script runs selected checks over 16 synthetic chats.
 
 ## AI tools used and how
@@ -73,7 +73,7 @@ Nothing is sent without the seller's approval.
 Matching source excerpts can make a draft easier to review, though they do not prove agreement. Offering partial payments is a possible alternative to a sterner reminder; its impact on collection rates has not been measured.
 
 ## What's next for PayNudge
-- Switching on per-seller PayPal connection (partner onboarding is built; it needs a live end-to-end test with a second business account).
+- Applying for PayPal partner access to switch on per-seller PayPal connection (the onboarding flow is built; the sandbox refuses it without partner approval).
 - WhatsApp alongside Telegram.
 - Testing a single-installment payment by a real buyer, and testing with real freelancers to measure time saved and days-to-paid.
 
