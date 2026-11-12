@@ -71,6 +71,7 @@ app.get("/api/status", (req, res) => {
 app.get("/api/samples", (req, res) => res.json(publicSamples()));
 
 // 1) Conversation -> invoice draft (AI)
+const draftCache = new Map();
 app.post("/api/extract", aiLimit, async (req, res) => {
   const text = String(req.body?.text || "").slice(0, 20000);
   const images = (req.body?.images || [])
@@ -78,7 +79,19 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     .slice(0, 4);
   if (!text.trim() && !images.length) return res.status(400).json({ error: "Paste a conversation or add a screenshot." });
   const started = Date.now();
+  // Text-only drafts are cached for the day (relative due dates depend on today), so judges
+  // clicking the same sample chat don't each spend the shared free AI quota.
+  const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${text}`).digest("hex") : null;
+  const cached = cacheKey && draftCache.get(cacheKey);
+  if (cached) {
+    logEvent("ai", `AI draft for ${cached.client.business_name || cached.client.name || "a client"} reused from an identical chat earlier today`);
+    return res.json(cached);
+  }
   const draft = normalizeDraft(await extractDraft({ text, images }), config.business.defaultCurrency);
+  if (cacheKey) {
+    draftCache.set(cacheKey, draft);
+    if (draftCache.size > 200) draftCache.delete(draftCache.keys().next().value);
+  }
   const lang = draft.conversation_language;
   const source = images.length
     ? `${images.length} screenshot${images.length > 1 ? "s" : ""}`
@@ -386,4 +399,18 @@ app.listen(config.port, () => {
   console.log(`  PayPal: ${config.paypal.live ? `${config.paypal.env} API` : "demo mode (in-memory mock)"}`);
   const vision = config.ai.visionModel ? ` (screenshots: ${config.ai.visionModel})` : "";
   console.log(`  AI:     ${config.ai.live ? `${config.ai.name} · ${config.ai.model}${vision}` : "demo mode (canned responses)"}`);
+  keepAwake();
 });
+
+// Render's free plan sleeps after 15 minutes without inbound traffic, and GitHub's scheduled
+// keep-warm runs are best-effort (often hours apart). While running on Render, the server
+// requests its own public URL every 10 minutes so visitors don't land on a cold start.
+// Uses ~744 of the 750 free instance hours in a 31-day month; set KEEP_AWAKE=false to turn off.
+function keepAwake() {
+  const url = process.env.RENDER_EXTERNAL_URL;
+  if (!url || process.env.KEEP_AWAKE === "false") return;
+  setInterval(() => {
+    fetch(`${url}/api/status`, { signal: AbortSignal.timeout(30000) }).catch((err) => console.warn("keep-awake ping failed:", err.message));
+  }, 10 * 60 * 1000);
+  console.log(`  Keep-awake: pinging ${url} every 10 minutes`);
+}

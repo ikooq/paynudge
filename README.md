@@ -2,13 +2,13 @@
 
 **An AI receivables assistant for freelancers and small businesses.** Paste a client chat, drop a screenshot or record a voice note, in any language. AI drafts the invoice and quotes the chat line behind every item, the **PayPal Invoicing API** creates and sends it, and when a client falls behind, PayNudge offers an AI-drafted **payment plan** that PayPal collects in installments on the same invoice.
 
-**Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq on free plans. A GitHub Action pings it every 10 minutes to keep it awake; if it was asleep anyway, the first load can take up to a minute.)
+**Live demo:** https://paynudge-sz4i.onrender.com (PayPal sandbox + Groq on free plans. On Render the server requests its own public URL every 10 minutes so it stays awake; if it was restarted, the first load can take up to a minute.)
 
 > Built for the PayPal AI Hackathon "Build What's Next with PayPal and AI".
 
 ## The problem
 
-Freelancers agree on work in WhatsApp, Telegram and email threads, often in several languages. Then come the tedious parts: copying the scope into an invoice, remembering who hasn't paid, and writing awkward "just checking in…" messages. Late payments cost freelancers real money, and most never chase them consistently.
+Freelancers agree on work in WhatsApp, Telegram and email threads, often in several languages. Then come the tedious parts: copying the scope into an invoice, remembering who hasn't paid, and writing awkward "just checking in…" messages. Late payments cost freelancers real money, and chasing them is easy to put off.
 
 ## What PayNudge does
 
@@ -93,7 +93,7 @@ These are synthetic examples written by us, not real customer data. A person mus
 | Voice note → text | recorded or uploaded audio (any language) | transcript the seller reviews before drafting |
 | Payment plan | late invoice, balance, days late, original language | 2–4 installments (re-checked by the server) and a message in the client's language |
 
-If the main model hits its free quota or returns output that fails the schema, the request is retried once on `openai/gpt-oss-20b`. AI endpoints are also rate-limited per IP to protect a public demo.
+If the main model hits its free quota or returns output that fails the schema, the request is retried once on `openai/gpt-oss-20b`. AI endpoints are also rate-limited per IP to protect a public demo, and a text chat identical to one already drafted that day (such as a sample chat) reuses that draft instead of calling the AI again, so visitors trying the samples don't use up the shared free quota.
 
 The provider is swappable through `.env`: Groq (default), Google Gemini (`AI_PROVIDER=gemini`), or any OpenAI-compatible API (`AI_PROVIDER=openai` with `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`).
 
@@ -163,7 +163,7 @@ npm run seed
 
 ## Deploy to Render
 
-The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`). `.github/workflows/keep-warm.yml` keeps the free instance awake; change its URL if you deploy your own copy.
+The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`). On Render the server pings its own `RENDER_EXTERNAL_URL` every 10 minutes so the free instance stays awake (about 744 of the 750 free instance hours in a 31-day month; set `KEEP_AWAKE=false` to turn it off). `.github/workflows/keep-warm.yml` is a backup ping, but GitHub runs scheduled workflows on a best-effort basis, often hours apart; change its URL if you deploy your own copy.
 
 ## Known limitations
 

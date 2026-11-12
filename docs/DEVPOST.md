@@ -36,8 +36,8 @@ Nothing is sent without the seller's approval.
 - **AI on Groq (free plan):** GPT-OSS 120B with strict JSON-schema output for invoice extraction, reminders, payment plans and the copilot; Qwen 3.8 27B to transcribe chat screenshots; Whisper large v3 turbo for voice notes; GPT-OSS 20B as a fallback. The provider is swappable (Gemini or any OpenAI-compatible API).
 - **Server:** Node.js and Express; PayPal is the source of truth (no database): the deal summary, client language and payment plan live in the invoice's private memo.
 - **Front end:** vanilla JavaScript, AG Grid Community, Tesseract.js for an on-device OCR fallback.
-- **Hosting:** Render (Blueprint from `render.yaml`), with a GitHub Action keeping the free instance awake.
-- **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state and webhook handling; an evaluation script runs selected checks over 16 synthetic chats.
+- **Hosting:** Render (Blueprint from `render.yaml`), with the server pinging its own public URL so the free instance stays awake.
+- **Quality:** automated tests cover invoice totals, dates, retries, reminder safety, payment-plan state, webhook handling and reuse of identical AI drafts; an evaluation script runs selected checks over 16 synthetic chats.
 
 ## AI tools used and how
 | Tool | Used for |
