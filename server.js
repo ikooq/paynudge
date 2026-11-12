@@ -9,6 +9,7 @@ import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 import { describeWebhookEvent } from "./src/webhook-events.js";
+import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -52,6 +53,9 @@ function aiLimit(req, res, next) {
   next();
 }
 
+// The seller a request acts for: the connected PayPal seller, or the shared demo seller.
+const sellerOf = (req) => req.seller?.id || "default";
+
 async function allRows() {
   const today = todayISO();
   const rows = (await paypal.listInvoices()).map((inv) => { const row = toRow(inv, today); return { ...row, reminderHistory: reminderHistory(row.id) }; });
@@ -81,13 +85,14 @@ app.post("/api/extract", aiLimit, async (req, res) => {
   const started = Date.now();
   // Text-only drafts are cached for the day (relative due dates depend on today), so judges
   // clicking the same sample chat don't each spend the shared free AI quota.
-  const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${text}`).digest("hex") : null;
+  const catalog = getCatalog(sellerOf(req));
+  const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${JSON.stringify(catalog)}\n${text}`).digest("hex") : null;
   const cached = cacheKey && draftCache.get(cacheKey);
   if (cached) {
     logEvent("ai", `AI draft for ${cached.client.business_name || cached.client.name || "a client"} reused from an identical chat earlier today`);
     return res.json(cached);
   }
-  const draft = normalizeDraft(await extractDraft({ text, images }), config.business.defaultCurrency);
+  const draft = applyCatalog(normalizeDraft(await extractDraft({ text, images, catalogHint: catalogPromptHint(catalog) }), config.business.defaultCurrency), catalog);
   if (cacheKey) {
     draftCache.set(cacheKey, draft);
     if (draftCache.size > 200) draftCache.delete(draftCache.keys().next().value);
@@ -101,6 +106,14 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
   );
   res.json(draft);
+});
+
+// Seller price list (fills missing prices and flags differences in AI drafts).
+app.get("/api/catalog", (req, res) => res.json({ items: getCatalog(sellerOf(req)) }));
+app.put("/api/catalog", writeLimit, async (req, res) => {
+  const items = await saveCatalog(sellerOf(req), req.body?.items);
+  logEvent("agent", `Price list saved: ${items.length} service${items.length === 1 ? "" : "s"}`);
+  res.json({ items });
 });
 
 // 1b) Voice note -> text (Whisper). The seller sees the transcript before anything is drafted.

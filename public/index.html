@@ -291,6 +291,30 @@
     </div>
   </dialog>
 
+  <dialog id="sellerDialog" class="dialog wide" aria-labelledby="sellerTitle">
+    <div class="ap">
+      <header>
+        <div>
+          <h3 id="sellerTitle">Seller workspace</h3>
+          <p class="muted" id="sellerMeta">Settings for the seller this dashboard acts for.</p>
+        </div>
+        <button class="btn ghost icon" type="button" id="sellerClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <div class="tabs" role="tablist" aria-label="Seller settings">
+        <button class="tab" role="tab" id="stab-account" aria-controls="spanel-account" aria-selected="true" type="button">PayPal account</button>
+        <button class="tab" role="tab" id="stab-catalog" aria-controls="spanel-catalog" aria-selected="false" tabindex="-1" type="button">Price list</button>
+        <button class="tab" role="tab" id="stab-recurring" aria-controls="spanel-recurring" aria-selected="false" tabindex="-1" type="button">Recurring</button>
+        <button class="tab" role="tab" id="stab-telegram" aria-controls="spanel-telegram" aria-selected="false" tabindex="-1" type="button">Telegram</button>
+      </div>
+      <section class="tab-panel" role="tabpanel" id="spanel-account" aria-labelledby="stab-account"></section>
+      <section class="tab-panel" role="tabpanel" id="spanel-catalog" aria-labelledby="stab-catalog" hidden></section>
+      <section class="tab-panel" role="tabpanel" id="spanel-recurring" aria-labelledby="stab-recurring" hidden></section>
+      <section class="tab-panel" role="tabpanel" id="spanel-telegram" aria-labelledby="stab-telegram" hidden></section>
+    </div>
+  </dialog>
+
   <dialog id="planDialog" class="dialog wide">
     <div class="ap">
       <header>

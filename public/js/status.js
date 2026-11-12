@@ -16,7 +16,7 @@ export async function loadStatus() {
     s.paypal.webhooks
       ? `<span class="chip hide-sm" title="Payments are noticed by checking PayPal every few seconds. A verified PayPal webhook, when PayPal sends one, updates the page at once."><i></i>Payments: webhooks + polling</span>`
       : `<span class="chip hide-sm demo" title="No PayPal webhook configured; the dashboard checks PayPal every few seconds"><i></i>Payments: polling</span>`,
-    `<span class="chip hide-sm">Seller: ${esc(s.business)}</span>`,
+    `<button type="button" class="chip chip-btn" data-open-seller="account" title="Seller workspace: PayPal account, price list, recurring invoices, Telegram">Seller: ${esc(s.seller?.name || s.business)} <span aria-hidden="true">▾</span></button>`,
   ];
   $("#statusChips").innerHTML = chips.join("");
   $("#dataNotice").textContent = s.ai.live

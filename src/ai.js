@@ -293,7 +293,7 @@ const draftSchema = {
   },
 };
 
-function extractSystemPrompt() {
+function extractSystemPrompt(catalogHint = "") {
   return `You are the billing assistant inside PayNudge, a tool freelancers and small businesses use to turn client conversations into PayPal invoices. The user is the seller, "${config.business.name}". The conversation may be pasted text or chat screenshots, in any language.
 
 Draft the invoice the seller should send:
@@ -309,10 +309,10 @@ Draft the invoice the seller should send:
 - warnings: anything the seller should double-check before sending, such as a missing email, an approximate quantity, a price that was mentioned but not clearly agreed, or an assumption you made about dates. One short sentence each. Return an empty list when everything is clear.
 - summary: one sentence for the seller's private records describing the deal and the tone of the relationship.
 - note_to_client: one or two warm sentences thanking the client for the specific work.
-- If the content is not a commercial conversation, return no items and explain why in warnings.`;
+- If the content is not a commercial conversation, return no items and explain why in warnings.${catalogHint}`;
 }
 
-export async function extractDraft({ text = "", images = [] }) {
+export async function extractDraft({ text = "", images = [], catalogHint = "" }) {
   if (!config.ai.live) return demoExtract(text);
 
   let conversation = text.trim();
@@ -324,7 +324,7 @@ export async function extractDraft({ text = "", images = [] }) {
     attach = [];
   }
   const draft = await structured({
-    system: extractSystemPrompt(),
+    system: extractSystemPrompt(catalogHint),
     text: conversation
       ? `Client conversation:\n<conversation>\n${conversation}\n</conversation>`
       : "The client conversation is in the attached screenshots.",

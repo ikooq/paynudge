@@ -80,6 +80,7 @@ export function renderDraft() {
         <span class="line-total">${fmt(lineTotal(it), d.currency)}</span>
         <button class="remove" type="button" data-remove="${i}" aria-label="Remove line">${icon.trash}</button>
         <small class="item-evidence">${it.evidence && it.evidence_source ? `Source match (${esc(it.evidence_source)}): “${esc(it.evidence)}”` : "No source excerpt linked. Check this item against the original conversation."}</small>
+        ${it.catalog ? `<small class="item-catalog">${it.price_source === "catalog" ? "Price from your price list" : "Matches your price list"}: ${esc(it.catalog.name)} · ${fmt(it.catalog.price, d.currency)}${it.price_source !== "catalog" && Number(it.unit_price) !== it.catalog.price ? " (differs from the chat)" : ""}</small>` : ""}
       </div>`,
     )
     .join("");
@@ -151,6 +152,9 @@ export function setupDraftEvents() {
       it.evidence = "";
       it.evidence_source = "";
       $(".item-evidence", row).textContent = "Edited item: check it against the original conversation.";
+      delete it.catalog;
+      delete it.price_source;
+      $(".item-catalog", row)?.remove();
       $(".line-total", row).textContent = fmt(lineTotal(it), d.currency);
     }
     const total = $("#draftTotal");

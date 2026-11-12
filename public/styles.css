@@ -584,3 +584,25 @@ textarea { resize: vertical; }
   .draft-foot { grid-template-columns: 1fr; }
   .total { text-align: left; }
 }
+
+/* Seller workspace ------------------------------------------------------------------------- */
+.chip-btn { cursor: pointer; font: inherit; }
+.chip-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+.chip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#sellerDialog .tabs { width: 100%; }
+#sellerDialog .tab-panel { gap: 12px; }
+.cat-list { display: grid; gap: 6px; }
+.cat-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 72px 36px; gap: 8px; align-items: center; }
+.cat-row input { padding: 7px 9px; min-width: 0; }
+.cat-head { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.cat-actions, .rec-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cat-actions .spacer, .rec-actions .spacer { flex: 1; }
+.item-catalog { grid-column: 1 / -1; font-size: 12px; color: var(--info); }
+.settings-card { border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: grid; gap: 8px; background: var(--surface-2); }
+.settings-card h4 { margin: 0; font-size: 15px; }
+.settings-card .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.code-pill { font-family: var(--mono); font-size: 15px; letter-spacing: .06em; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+@media (max-width: 600px) {
+  .cat-row { grid-template-columns: minmax(0, 1fr) 90px 36px; }
+  .cat-row > :nth-child(3) { display: none; }
+}

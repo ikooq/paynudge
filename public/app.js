@@ -12,6 +12,7 @@ import { setupAutopilot, toneFor } from "./js/autopilot.js";
 import { plan, setupPlan } from "./js/plan.js";
 import { setupCopilot } from "./js/copilot.js";
 import { openNudge, setupNudge } from "./js/nudge.js";
+import { setupSeller } from "./js/seller.js";
 
 // ---------------------------------------------------------------------------------------------
 // Boot
@@ -26,6 +27,7 @@ setupGrid();
 setupTabs();
 setupVoice();
 setupPlan();
+setupSeller();
 // The hero frame's evidence loop runs forever, so it has a pause control.
 $("#heroPause")?.addEventListener("click", (e) => {
   const paused = $("#heroFrame").classList.toggle("is-paused");
