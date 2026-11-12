@@ -157,12 +157,22 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
     return res.status(400).json({ error: "A valid invoice operation ID is required." });
   }
-  res.status(201).json(await createAndSendInvoice(req.body?.draft || {}, operationId));
+  res.status(201).json(await createAndSendInvoice(req.body?.draft || {}, operationId, { timing: { channel: "web", seconds: req.body?.timing?.seconds } }));
 });
+
+// Real-use measurement: seconds from starting a draft (web: "Draft invoice", Telegram: the first
+// forwarded message) to the invoice being sent. One record per invoice; no chat content is kept.
+async function recordUsage(operationId, timing, row) {
+  const seconds = Number(timing?.seconds);
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 6 * 3600) return;
+  const seller = currentSeller().id;
+  await store.set("usage", `${seller}:${operationId}`, { seller, at: new Date().toISOString(), channel: timing.channel === "telegram" ? "telegram" : "web", seconds: Math.round(seconds), currency: row.currency, amount: row.amount })
+    .catch((err) => console.warn("usage not recorded:", err.message));
+}
 
 // Creates the PayPal invoice for a reviewed draft and sends it (email, or a share link without one).
 // The operation ID is PayPal's request ID, so retrying the same operation never bills twice.
-async function createAndSendInvoice(rawDraft, operationId, { business = currentBusiness() } = {}) {
+async function createAndSendInvoice(rawDraft, operationId, { business = currentBusiness(), timing } = {}) {
   const { invoice, draft } = buildPayPalInvoice(rawDraft, business);
   const created = await paypal.createDraftInvoice(invoice, { requestId: operationId });
   const hasEmail = Boolean(draft.client.email);
@@ -190,6 +200,7 @@ async function createAndSendInvoice(rawDraft, operationId, { business = currentB
       : `PayPal created a payment link for invoice #${row.number} (${row.client})`,
     { invoiceId: row.id, sent: true },
   );
+  if (timing && !store.get("usage", `${currentSeller().id}:${operationId}`)) await recordUsage(operationId, timing, row);
   return { row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail };
 }
 
@@ -258,7 +269,8 @@ app.get("/api/metrics", async (req, res) => {
     } catch { /* leave it out of the speed figures */ }
   }));
   const enriched = rows.map((r) => (paymentDates.has(r.id) && !r.paidAt ? { ...r, ...paymentDates.get(r.id) } : r));
-  res.json(computeMetrics(enriched, reminders));
+  const usage = store.list("usage").map(({ value }) => value).filter((u) => u.seller === currentSeller().id);
+  res.json(computeMetrics(enriched, reminders, usage));
 });
 
 // Agent activity feed: what the AI and PayPal did, newest first
@@ -496,7 +508,7 @@ const bot = createBot({
   extract: ({ text, images, seller }) => runAsSeller(contextFor(seller), () => draftFromConversation({ text, images, seller, via: " (Telegram)" })),
   transcribe: transcribeAudio,
   voice: !config.ai.live || audioSupported(),
-  createInvoice: (draft, operationId, seller) => runAsSeller(contextFor(seller), () => createAndSendInvoice(draft, operationId)),
+  createInvoice: (draft, operationId, seller, timing) => runAsSeller(contextFor(seller), () => createAndSendInvoice(draft, operationId, { timing })),
   sellerName: (seller) => sellerRecord(seller)?.name || config.business.name,
 });
 app.get("/api/telegram", (req, res) => res.json({

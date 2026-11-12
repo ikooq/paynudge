@@ -38,6 +38,7 @@ export async function extract() {
     toast("Paste a conversation or add a screenshot first.", "error");
     return;
   }
+  state.draftStartedAt = Date.now(); // for the real-use "chat to sent invoice" time
   const btn = $("#extractBtn");
   btn.disabled = true;
   renderThinking();
@@ -203,7 +204,8 @@ export async function sendInvoice() {
   if (!d.due_date && !d.due_on_receipt) return toast("Choose a due date or confirm payment is due on receipt.", "error");
   const btn = $("#sendBtn");
   if (!state.pendingInvoice) {
-    state.pendingInvoice = { operationId: crypto.randomUUID(), draft: structuredClone(d) };
+    const seconds = state.draftStartedAt ? Math.round((Date.now() - state.draftStartedAt) / 1000) : null;
+    state.pendingInvoice = { operationId: crypto.randomUUID(), draft: structuredClone(d), timing: { channel: "web", seconds } };
     sessionStorage.setItem("paynudge.pendingInvoice", JSON.stringify(state.pendingInvoice));
   }
   // Keep the invoice immutable while the outcome is uncertain, including after a reload.

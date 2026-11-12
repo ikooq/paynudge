@@ -95,7 +95,7 @@ export function createBot(deps) {
   function buffer(chatId) {
     const b = buffers.get(chatId);
     if (b && Date.now() - b.at < BUFFER_MS) return b;
-    const fresh = { parts: [], images: [], at: Date.now() };
+    const fresh = { parts: [], images: [], at: Date.now(), started: Date.now() };
     buffers.set(chatId, fresh);
     return fresh;
   }
@@ -119,7 +119,7 @@ export function createBot(deps) {
       buffers.delete(chatId);
       if (!draft.items.length) return send(chatId, `I couldn't find anything to bill.${draft.warnings?.length ? `\n${draft.warnings.map((w) => `⚠️ ${escHtml(w)}`).join("\n")}` : ""}`);
       const id = randomUUID();
-      await store.set("tgdraft", String(chatId), { id, seller, draft, at: Date.now() });
+      await store.set("tgdraft", String(chatId), { id, seller, draft, at: Date.now(), started: b.started });
       return send(chatId, draftSummary(draft), {
         reply_markup: { inline_keyboard: [[{ text: "✅ Create & send via PayPal", callback_data: `send:${id}` }], [{ text: "✖ Discard", callback_data: `drop:${id}` }]] },
       });
@@ -150,7 +150,8 @@ export function createBot(deps) {
     try {
       await clearButtons();
       // The draft ID is PayPal's request ID: a double tap or retry can't create two invoices.
-      const { row, payerUrl, emailed } = await deps.createInvoice(pending.draft, pending.id, pending.seller);
+      const seconds = pending.started ? Math.round((Date.now() - pending.started) / 1000) : null;
+      const { row, payerUrl, emailed } = await deps.createInvoice(pending.draft, pending.id, pending.seller, { channel: "telegram", seconds });
       await store.delete("tgdraft", String(chatId));
       return send(chatId, emailed
         ? `✅ PayPal sent invoice <b>#${escHtml(row.number)}</b> (${money(row.amount, row.currency)}) to ${escHtml(row.email)}.\n\nPayment link, if you also want to drop it in the chat:\n${escHtml(payerUrl)}`

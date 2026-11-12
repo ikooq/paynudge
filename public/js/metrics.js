@@ -23,7 +23,10 @@ export async function loadMetrics() {
     const t = fmtTotals(map);
     return t.extra ? `${t.main} <small>${t.extra}</small>` : t.main;
   };
+  const secs = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`);
+  const u = m.chatToSent;
   body.innerHTML = [
+    tile("Chat to sent invoice", u ? secs(u.medianSeconds) : none, u ? `median of ${plural(u.count, "invoice")} sent with PayNudge (web ${u.web}, Telegram ${u.telegram})` : "measured on each invoice sent from PayNudge"),
     tile("Median days to pay", m.medianDaysToPay ?? none, m.paidViaPayPal ? `invoice date to PayPal payment · ${plural(m.paidViaPayPal, "invoice")}` : "no invoice paid through PayPal yet"),
     tile("Paid by the due date", m.paidOnTime ? `${m.paidOnTime.count} of ${m.paidOnTime.of}` : none, "invoices paid through PayPal with a due date"),
     tile("Collected on payment plans", totals(m.planCollected), `${plural(m.plansOffered, "plan")} offered · ${m.plansPaidInFull} paid in full`),

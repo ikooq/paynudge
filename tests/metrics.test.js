@@ -32,3 +32,9 @@ test("metrics use only PayPal payments for speed and report sample sizes", () =>
   assert.equal(m.paidAfterReminder, 1);
   assert.deepEqual(m.overdue, { EUR: 600 });
 });
+
+test("chat-to-sent time is the median over invoices actually sent with PayNudge", () => {
+  const usage = [{ channel: "web", seconds: 40 }, { channel: "telegram", seconds: 25 }, { channel: "web", seconds: 90 }];
+  assert.deepEqual(computeMetrics([], {}, usage).chatToSent, { medianSeconds: 40, count: 3, web: 2, telegram: 1 });
+  assert.equal(computeMetrics([], {}, []).chatToSent, null);
+});

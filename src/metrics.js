@@ -13,7 +13,7 @@ const median = (xs) => {
 const add = (totals, currency, value) => { totals[currency] = round2((totals[currency] || 0) + value); };
 
 // Only invoices paid through PayPal count towards speed: seller-recorded payments have no reliable date.
-export function computeMetrics(rows, reminders = {}) {
+export function computeMetrics(rows, reminders = {}, usage = []) {
   const paid = rows.filter((r) => r.status === "PAID" && r.paidAt && r.invoiceDate);
   const toPay = paid.map((r) => Math.max(0, days(r.invoiceDate, r.paidAt)));
   const withDue = paid.filter((r) => r.dueDate);
@@ -40,5 +40,9 @@ export function computeMetrics(rows, reminders = {}) {
     remindersSent: reminded.length,
     paidAfterReminder: paidAfterReminder.length,
     overdue,
+    // Measured on real use of PayNudge: seconds from starting a draft to the invoice being sent.
+    chatToSent: usage.length
+      ? { medianSeconds: median(usage.map((u) => u.seconds)), count: usage.length, web: usage.filter((u) => u.channel === "web").length, telegram: usage.filter((u) => u.channel === "telegram").length }
+      : null,
   };
 }
