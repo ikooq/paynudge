@@ -81,7 +81,7 @@ To enable it: PayPal Developer Dashboard → Apps & Credentials → your sandbox
 
 **What "Collected" means.** PayPal status `PAID` counts as *paid via PayPal*. `MARKED_AS_PAID` is a payment the seller recorded manually (the sandbox seed script creates one such invoice); the dashboard shows the two amounts separately.
 
-PayPal is the source of truth: PayNudge has no database. The AI's deal summary and the client's language are kept in the invoice's private `memo` field, so later reminders have that context.
+PayPal is the source of truth for invoices: PayNudge keeps no invoice copy in its own database (Neon Postgres holds only reminder history, price lists, schedules, the approval queue, connected sellers and Telegram links). The AI's deal summary and the client's language are kept in the invoice's private `memo` field, so later reminders have that context.
 
 ## How AI is used
 
