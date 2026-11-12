@@ -11,7 +11,7 @@ Turn a client chat, screenshot or voice note into a PayPal invoice with source e
 ## Links
 - Live demo: https://paynudge-sz4i.onrender.com
 - Code (MIT): https://github.com/ikooq/paynudge
-- Video: <YouTube link>
+- Video: https://youtu.be/7a9xhKxIdfc
 
 ---
 
