@@ -1,4 +1,4 @@
-import { $, aiLabel, api, esc, state } from "./helpers.js";
+import { $, aiLabel, aiTitle, api, esc, state } from "./helpers.js";
 import { voice } from "./voice.js";
 
 // ---------------------------------------------------------------------------------------------
