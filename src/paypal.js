@@ -2,6 +2,7 @@
 // Docs: https://developer.paypal.com/docs/api/invoicing/v2/
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { currentSeller } from "./context.js";
 
 const { baseUrl, clientId, clientSecret } = config.paypal;
 
@@ -55,8 +56,17 @@ export async function verifyWebhookSignature(headers, event, webhookId) {
   return result?.verification_status === "SUCCESS";
 }
 
-async function request(path, { method = "GET", body, headers = {} } = {}) {
+// A connected seller (PayPal partner onboarding) is addressed with an unsigned auth assertion naming
+// their merchant ID; PayPal checks that the seller granted this app permission for the call.
+export function authAssertion(merchantId) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b64({ alg: "none" })}.${b64({ iss: clientId, payer_id: merchantId })}.`;
+}
+
+export async function request(path, { method = "GET", body, headers = {}, asPartner = false } = {}) {
   const token = await getAccessToken();
+  const merchantId = asPartner ? "" : currentSeller().merchantId;
+  if (merchantId) headers = { "PayPal-Auth-Assertion": authAssertion(merchantId), ...headers };
   const res = await fetch(path.startsWith("http") ? path : `${baseUrl}${path}`, {
     method,
     headers: {

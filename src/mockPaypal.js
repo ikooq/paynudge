@@ -91,7 +91,8 @@ export async function markPaid(id, amount) {
     throw Object.assign(new Error("This invoice does not accept partial payments"), { status: 400 });
   }
   const paid = Math.round((already + pay) * 100) / 100;
-  inv.payments = { paid_amount: { currency_code: currency, value: paid.toFixed(2) } };
+  const transactions = [...(inv.payments?.transactions || []), { payment_date: new Date().toISOString().slice(0, 10), amount: { currency_code: currency, value: pay.toFixed(2) } }];
+  inv.payments = { paid_amount: { currency_code: currency, value: paid.toFixed(2) }, transactions };
   inv.due_amount = { currency_code: currency, value: Math.max(0, total - paid).toFixed(2) };
   inv.status = total - paid < 0.005 ? "PAID" : "PARTIALLY_PAID";
 }
@@ -137,7 +138,7 @@ function seed(client, email, lang, memo, currency, items, invoiceDaysAgo, dueInD
     items: lineItems,
     amount,
     due_amount: paid ? { currency_code: currency, value: "0.00" } : amount,
-    ...(paid ? { payments: { paid_amount: amount } } : {}),
+    ...(paid ? { payments: { paid_amount: amount, transactions: [{ payment_date: shiftDays(-Math.max(0, invoiceDaysAgo - 9)), amount }] } } : {}),
   });
 }
 

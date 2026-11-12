@@ -28,11 +28,19 @@ Freelancers agree on work in WhatsApp, Telegram and email threads, often in seve
    The collection plan surfaces up to three oldest overdue invoices that have no recent or unconfirmed contact. Its ranking is an explicit age-based rule, not an AI prediction; each recommendation can open a reminder or be selected in AG Grid for review as a batch.
 8. **The payment moment.** After an invoice is sent, the dashboard checks PayPal every 4 seconds (15 seconds otherwise). When the client pays, it announces "Bloom Coffee just paid $690", the row lights up and the KPIs update.
 
+9. **Today's approvals.** Each morning (or on demand) the agent prepares the day's work: a reminder for each overdue invoice not contacted in the last 3 days, a payment-plan offer for invoices more than 21 days late, and any recurring invoice that is due. The seller edits, approves or skips each item in the **Approvals** tab; approval goes through the same checked endpoints as the manual flows.
+10. **Seller workspace** (the "Seller" button in the header):
+    - **Price list.** After extraction each line item is matched to the seller's services by name. A service agreed without a price gets the list price with a warning; a chat price that differs from the list is kept and flagged. The model sees only service names, never prices.
+    - **Recurring invoices.** Monthly or weekly schedules for regular clients. Each occurrence waits in Today's approvals; the queue item's ID is the PayPal request ID, so a retry cannot bill twice.
+    - **Telegram.** Link a Telegram chat with a one-time code, forward a client conversation (text, screenshots or a voice note) to the bot, and it replies with the draft and the chat quotes behind each line. One tap creates and sends the invoice and returns the payment link. Unlinked chats can't draft or send.
+    - **Your own PayPal account.** PayPal partner onboarding: the seller signs in on PayPal and grants invoice permission; PayNudge confirms the merchant with PayPal and then acts for them with a `PayPal-Auth-Assertion` header. Price list, recurring invoices, queue, Telegram links and activity are kept per seller. Without it, visitors use the shared demo seller.
+11. **Collection metrics** (Insights): median days to pay, share paid by the due date, money collected on payment plans, payments after a PayNudge reminder and overdue balances, from the seller's own PayPal invoices. Speed counts only invoices paid through PayPal, and every number shows how many invoices it rests on.
+
 The AI never sends anything on its own. Every invoice and reminder is reviewed by a person first.
 
 If an invoice request is interrupted, PayNudge keeps the reviewed draft and its operation ID in the current browser tab's session storage. Retrying uses the same PayPal request ID and checks the existing invoice before sending. The draft is locked while its outcome is uncertain. Check PayPal before choosing to start over: request IDs have a provider-defined retention period, and a closed tab or cleared session storage loses the recovery information. Demo-mode data is in memory and disappears on server restart.
 
-PayNudge records reminder attempts locally (invoice ID, timestamp, and delivery state only). A recent reminder or an unconfirmed attempt is excluded from batch selection and requires explicit confirmation before another send. The default `data/reminders.json` survives a local process restart, but Render's free filesystem is ephemeral; use `REMINDER_HISTORY_FILE` on persistent storage for durable history. This is a single-instance journal, not a multi-instance database or a complete record of reminders sent outside PayNudge. Always check PayPal if delivery is unconfirmed.
+PayNudge records reminder attempts (invoice ID, timestamp, and delivery state only). A recent reminder or an unconfirmed attempt is excluded from batch selection and requires explicit confirmation before another send. Reminder history, price lists, recurring schedules, the approval queue, connected sellers and Telegram links live in a small store: PostgreSQL when `DATABASE_URL` is set (one table, survives redeploys), otherwise `data/store.json`, which survives a process restart but not a redeploy on Render's free plan. This is a single-instance journal, not a multi-instance database or a complete record of reminders sent outside PayNudge. Always check PayPal if delivery is unconfirmed.
 
 The shared demo applies in-memory per-client request limits on AI and invoice/reminder writes. On Render it trusts one proxy hop to distinguish visitors; other proxy topologies require their own configuration. Rate limits are not authentication and are not shared across instances. The API status endpoint reports the deployed Render commit when available.
 
@@ -60,6 +68,8 @@ For a reproducible end-to-end demo and video outline, see [docs/DEMO.md](docs/DE
 | Payment updates (polling) | `GET /v2/invoicing/invoices` every 4–15 seconds |
 | Payment updates (webhook, see note) | Webhook `INVOICING.INVOICE.PAID` (also `CANCELLED`, `REFUNDED`) → `POST /api/paypal/webhook` |
 | Prove a webhook is genuine | `POST /v1/notifications/verify-webhook-signature` |
+| Connect a seller's own account | `POST /v2/customer/partner-referrals` (invoice permission), then `GET /v1/customer/partners/{partner}/merchant-integrations` to confirm the merchant and scope |
+| Act for a connected seller | every call above with a `PayPal-Auth-Assertion` header naming their merchant ID |
 
 **Payment updates: what is proven and what is not.** The dashboard reliably notices payments by polling PayPal every 4–15 seconds; this is what showed sandbox invoices #0008 and #0009 as paid after a real sandbox buyer paid them.
 
@@ -117,8 +127,12 @@ flowchart LR
 - `src/paypal.js`: PayPal Invoicing API client (OAuth token caching, idempotency keys)
 - `src/invoices.js`: AI draft → PayPal invoice → dashboard row conversions
 - `src/mockPaypal.js`: in-memory PayPal stand-in for demo mode
-- `src/activity.js`: agent activity log and payment detection between refreshes
-- `public/`: front end (vanilla JS + AG Grid Community)
+- `src/activity.js`: agent activity log (per seller) and payment detection between refreshes
+- `src/store.js`: key-value store (PostgreSQL or JSON file)
+- `src/context.js`, `src/accounts.js`: which seller a request acts for; PayPal partner onboarding and signed session cookies
+- `src/catalog.js`, `src/recurring.js`, `src/queue.js`, `src/metrics.js`: price list, recurring schedules, daily approval queue, collection metrics
+- `src/telegram.js`: Telegram bot (webhook on Render, long polling locally)
+- `public/app.js` + `public/js/`: front end as ES modules (vanilla JS + AG Grid Community), one module per feature
 
 ## Run it locally
 
@@ -165,7 +179,7 @@ npm run seed
 
 ## Deploy to Render
 
-The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`). On Render the server pings its own `RENDER_EXTERNAL_URL` every 10 minutes so the free instance stays awake (about 744 of the 750 free instance hours in a 31-day month; set `KEEP_AWAKE=false` to turn it off). `.github/workflows/keep-warm.yml` is a backup ping, but GitHub runs scheduled workflows on a best-effort basis, often hours apart; change its URL if you deploy your own copy.
+The repo includes `render.yaml`. In Render: New → Blueprint → select this repo, then fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GROQ_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`). Optional: `DATABASE_URL` (PostgreSQL, for data that survives redeploys), `TELEGRAM_BOT_TOKEN` (from @BotFather; the webhook is registered automatically at start), `PAYPAL_PARTNER_MERCHANT_ID` (the app owner's sandbox merchant ID; switches on "Connect PayPal") and `SESSION_SECRET` (signs seller cookies). On Render the server pings its own `RENDER_EXTERNAL_URL` every 10 minutes so the free instance stays awake (about 744 of the 750 free instance hours in a 31-day month; set `KEEP_AWAKE=false` to turn it off). `.github/workflows/keep-warm.yml` is a backup ping, but GitHub runs scheduled workflows on a best-effort basis, often hours apart; change its URL if you deploy your own copy.
 
 ## Known limitations
 
@@ -173,8 +187,9 @@ This is a hackathon prototype, and we prefer to say so plainly:
 
 - **Webhooks are a second signal, not the primary one.** One real signed `INVOICING.INVOICE.PAID` delivery was received and verified (Nov 12), but in an earlier test the sandbox emitted no event, so payments are noticed first by polling within 4–15 seconds.
 - **A partial installment by a real buyer is not yet tested.** A sandbox buyer paid a plan invoice in full through PayPal (Nov 12); paying a single installment has only been tested in demo mode.
-- **One seller, no login.** The demo runs on one PayPal sandbox account shared by every visitor. Connecting each user's own PayPal account would need PayPal's partner onboarding and a user database.
-- **Reminder history is not durable on the free host.** It lives in a local file that Render's free plan can wipe on redeploy. Production needs a database.
+- **Connecting your own PayPal account is built but not yet verified live.** The partner-onboarding flow, scope check and auth-assertion calls are covered by automated tests with a simulated PayPal, but have not been run end to end with a second sandbox business account. Until `PAYPAL_PARTNER_MERCHANT_ID` is set, visitors share one sandbox seller.
+- **New Nov 12 features are tested in demo mode.** The approval queue, recurring invoices, price list, metrics and Telegram bot pass automated tests and were exercised in the browser in demo mode; the Telegram bot has not yet been run against a real bot token.
+- **Stored settings need a database to be durable on the free host.** Without `DATABASE_URL`, reminder history, price lists, recurring schedules and Telegram links live in a file that a Render redeploy wipes.
 - **Screenshot reading depends on a free vision quota.** When Groq's vision model is out of quota, the in-browser OCR fallback works but makes character mistakes, so the text must be reviewed.
 - **No user research yet.** We have not measured time saved or faster payment with real freelancers; the AI check above uses synthetic chats.
 - **Demo data.** The sandbox contains backdated seed invoices and one manually recorded payment so the dashboard has history; real PayPal payments are shown separately as "paid via PayPal".

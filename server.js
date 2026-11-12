@@ -9,6 +9,14 @@ import { publicSamples } from "./src/samples.js";
 import { logEvent, detectPayments, listActivity, subscribe, broadcast } from "./src/activity.js";
 import { reminderHistory, recordReminder } from "./src/reminder-history.js";
 import { describeWebhookEvent } from "./src/webhook-events.js";
+import { getCatalog, saveCatalog, applyCatalog, catalogPromptHint } from "./src/catalog.js";
+import { buildQueue, getQueue, markItem } from "./src/queue.js";
+import { computeMetrics } from "./src/metrics.js";
+import { currentSeller, runAsSeller, DEFAULT_SELLER } from "./src/context.js";
+import { canConnect, sellerFromCookie, sessionCookie, clearCookie, startOnboarding, finishOnboarding, renameSeller, sellerRecord } from "./src/accounts.js";
+import { telegram, createBot, createLinkCode, linkedChats, unlinkChat, verifySecret } from "./src/telegram.js";
+import { store } from "./src/store.js";
+import { listRecurring, saveSchedule, setActive, deleteSchedule, dueSchedules, scheduleDraft, markIssued } from "./src/recurring.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const paypal = config.paypal.live ? await import("./src/paypal.js") : await import("./src/mockPaypal.js");
@@ -19,6 +27,11 @@ const app = express();
 // per-client limits don't accidentally treat every judge as the same visitor.
 if (process.env.RENDER === "true") app.set("trust proxy", 1);
 app.use(express.json({ limit: "20mb" }));
+// Every request runs as the connected seller (signed cookie) or the shared demo seller.
+app.use((req, res, next) => {
+  req.seller = sellerFromCookie(req.headers.cookie);
+  runAsSeller(req.seller || DEFAULT_SELLER, next);
+});
 app.use(express.static(path.join(here, "public")));
 app.use("/vendor/ag-grid", express.static(path.join(here, "node_modules/ag-grid-community/dist")));
 app.use("/vendor/tesseract", express.static(path.join(here, "node_modules/tesseract.js/dist")));
@@ -52,6 +65,19 @@ function aiLimit(req, res, next) {
   next();
 }
 
+// The seller a request acts for: the connected PayPal seller, or the shared demo seller.
+const sellerOf = (req) => req.seller?.id || "default";
+// Business details for invoices: the connected seller's name when there is one.
+const currentBusiness = () => {
+  const s = currentSeller();
+  return s.merchantId ? { ...config.business, name: s.name, email: s.email } : config.business;
+};
+// Context for actions that don't come from a browser request (Telegram bot).
+const contextFor = (sellerId) => {
+  const r = sellerRecord(sellerId);
+  return r ? { id: sellerId, merchantId: r.merchantId, name: r.name, email: r.email } : DEFAULT_SELLER;
+};
+
 async function allRows() {
   const today = todayISO();
   const rows = (await paypal.listInvoices()).map((inv) => { const row = toRow(inv, today); return { ...row, reminderHistory: reminderHistory(row.id) }; });
@@ -63,7 +89,8 @@ app.get("/api/status", (req, res) => {
   res.json({
     paypal: { live: config.paypal.live, env: config.paypal.env, webhooks: Boolean(config.paypal.live && config.paypal.webhookId), lastWebhookAt },
     ai: { live: config.ai.live, model: config.ai.model, visionModel: config.ai.visionModel, provider: config.ai.name, voice: !config.ai.live || audioSupported() },
-    business: config.business.name,
+    business: currentBusiness().name,
+    seller: { connected: Boolean(req.seller), name: currentBusiness().name, email: req.seller?.email || "", merchantId: req.seller?.merchantId || "", canConnect: canConnect() },
     build: process.env.RENDER_GIT_COMMIT || null,
   });
 });
@@ -78,16 +105,22 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     .filter((i) => /^image\/(png|jpeg|webp|gif)$/.test(i?.media_type) && typeof i?.data === "string")
     .slice(0, 4);
   if (!text.trim() && !images.length) return res.status(400).json({ error: "Paste a conversation or add a screenshot." });
+  res.json(await draftFromConversation({ text, images, seller: sellerOf(req), via: "" }));
+});
+
+// Shared by the web composer and the Telegram bot: AI extraction, then the seller's price list.
+async function draftFromConversation({ text, images = [], seller, via = "" }) {
   const started = Date.now();
   // Text-only drafts are cached for the day (relative due dates depend on today), so judges
   // clicking the same sample chat don't each spend the shared free AI quota.
-  const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${text}`).digest("hex") : null;
+  const catalog = getCatalog(seller);
+  const cacheKey = !images.length && config.ai.live ? createHash("sha256").update(`${todayISO()}\n${config.ai.model}\n${JSON.stringify(catalog)}\n${text}`).digest("hex") : null;
   const cached = cacheKey && draftCache.get(cacheKey);
   if (cached) {
     logEvent("ai", `AI draft for ${cached.client.business_name || cached.client.name || "a client"} reused from an identical chat earlier today`);
-    return res.json(cached);
+    return cached;
   }
-  const draft = normalizeDraft(await extractDraft({ text, images }), config.business.defaultCurrency);
+  const draft = applyCatalog(normalizeDraft(await extractDraft({ text, images, catalogHint: catalogPromptHint(catalog) }), config.business.defaultCurrency), catalog);
   if (cacheKey) {
     draftCache.set(cacheKey, draft);
     if (draftCache.size > 200) draftCache.delete(draftCache.keys().next().value);
@@ -98,9 +131,17 @@ app.post("/api/extract", aiLimit, async (req, res) => {
     : `${/^[aeiou]/i.test(lang) ? "an" : "a"} ${lang} chat`;
   logEvent(
     "ai",
-    `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
+    `AI drafted an invoice for ${draft.client.business_name || draft.client.name || "a client"} from ${source}${via}: ${draft.items.length} line items, ${draft.total.toFixed(2)} ${draft.currency} (${((Date.now() - started) / 1000).toFixed(1)}s)`,
   );
-  res.json(draft);
+  return draft;
+}
+
+// Seller price list (fills missing prices and flags differences in AI drafts).
+app.get("/api/catalog", (req, res) => res.json({ items: getCatalog(sellerOf(req)) }));
+app.put("/api/catalog", writeLimit, async (req, res) => {
+  const items = await saveCatalog(sellerOf(req), req.body?.items);
+  logEvent("agent", `Price list saved: ${items.length} service${items.length === 1 ? "" : "s"}`);
+  res.json({ items });
 });
 
 // 1b) Voice note -> text (Whisper). The seller sees the transcript before anything is drafted.
@@ -116,7 +157,13 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
     return res.status(400).json({ error: "A valid invoice operation ID is required." });
   }
-  const { invoice, draft } = buildPayPalInvoice(req.body?.draft || {}, config.business);
+  res.status(201).json(await createAndSendInvoice(req.body?.draft || {}, operationId));
+});
+
+// Creates the PayPal invoice for a reviewed draft and sends it (email, or a share link without one).
+// The operation ID is PayPal's request ID, so retrying the same operation never bills twice.
+async function createAndSendInvoice(rawDraft, operationId, { business = currentBusiness() } = {}) {
+  const { invoice, draft } = buildPayPalInvoice(rawDraft, business);
   const created = await paypal.createDraftInvoice(invoice, { requestId: operationId });
   const hasEmail = Boolean(draft.client.email);
   let payerUrl;
@@ -125,7 +172,7 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
     const existing = await paypal.getInvoice(created.id);
     if (existing.status !== "DRAFT") payerUrl = toRow(existing).payerUrl;
     else payerUrl = await paypal.sendInvoice(created.id, {
-      subject: `Invoice from ${config.business.name}`,
+      subject: `Invoice from ${business.name}`,
       note: draft.note_to_client || undefined,
       sendToRecipient: hasEmail,
       requestId: createHash("sha256").update(`send:${operationId}`).digest("hex").slice(0, 32),
@@ -133,7 +180,7 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
     fresh = await paypal.getInvoice(created.id);
   } catch (err) {
     console.error("Invoice created but sending failed", created.id, err.message);
-    return res.status(502).json({ error: `Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.` });
+    throw Object.assign(new Error(`Invoice ${created.id} exists, but its delivery could not be confirmed. Retry this same operation; check PayPal before starting a new invoice.`), { status: 502 });
   }
   const row = toRow(fresh);
   logEvent(
@@ -143,8 +190,8 @@ app.post("/api/invoices", writeLimit, async (req, res) => {
       : `PayPal created a payment link for invoice #${row.number} (${row.client})`,
     { invoiceId: row.id, sent: true },
   );
-  res.status(201).json({ row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail });
-});
+  return { row, payerUrl: payerUrl || row.payerUrl, emailed: hasEmail };
+}
 
 // 3) Receivables dashboard data, read live from PayPal
 app.get("/api/invoices", async (req, res) => {
@@ -194,6 +241,24 @@ app.get("/api/events", (req, res) => {
     clearInterval(ping);
     unsubscribe();
   });
+});
+
+// Collection metrics from the seller's own PayPal invoices and reminder journal.
+// PayPal's invoice list omits payment transactions, so payment dates for paid invoices come from the
+// single-invoice call, cached by invoice ID (a paid invoice's payments don't change).
+const paymentDates = new Map();
+app.get("/api/metrics", async (req, res) => {
+  const reminders = Object.fromEntries(store.list("reminders").map(({ key, value }) => [key, value]));
+  const rows = await allRows();
+  const missing = rows.filter((r) => r.paid > 0 && !r.paidAt && !r.firstPaymentAt && !paymentDates.has(r.id)).slice(0, 25);
+  await Promise.all(missing.map(async (r) => {
+    try {
+      const full = toRow(await paypal.getInvoice(r.id));
+      paymentDates.set(r.id, { paidAt: full.paidAt, firstPaymentAt: full.firstPaymentAt });
+    } catch { /* leave it out of the speed figures */ }
+  }));
+  const enriched = rows.map((r) => (paymentDates.has(r.id) && !r.paidAt ? { ...r, ...paymentDates.get(r.id) } : r));
+  res.json(computeMetrics(enriched, reminders));
 });
 
 // Agent activity feed: what the AI and PayPal did, newest first
@@ -347,6 +412,110 @@ app.post("/api/invoices/:id/plan/accept", writeLimit, async (req, res) => {
   } finally { reminderLocks.delete(id); }
 });
 
+// 5d) Recurring invoices: schedules kept by PayNudge; each due occurrence goes to the approval queue.
+app.get("/api/recurring", (req, res) => res.json({ items: listRecurring(sellerOf(req)) }));
+app.post("/api/recurring", writeLimit, async (req, res) => {
+  const schedule = await saveSchedule(sellerOf(req), req.body, req.body?.id);
+  logEvent("agent", `Recurring ${schedule.interval} invoice saved for ${schedule.client.business_name || schedule.client.name}: ${schedule.total.toFixed(2)} ${schedule.currency}, next on ${schedule.nextDate}`);
+  res.json({ schedule });
+});
+app.post("/api/recurring/:id/active", writeLimit, async (req, res) => res.json({ schedule: await setActive(sellerOf(req), req.params.id, req.body?.active) }));
+app.delete("/api/recurring/:id", writeLimit, async (req, res) => {
+  await deleteSchedule(sellerOf(req), req.params.id);
+  res.json({ ok: true });
+});
+app.post("/api/recurring/:id/issued", writeLimit, async (req, res) => {
+  const schedule = await markIssued(sellerOf(req), req.params.id, String(req.body?.forDate || ""), req.body?.invoiceId);
+  res.json({ schedule });
+});
+app.get("/api/recurring/:id/draft", (req, res) => {
+  const schedule = listRecurring(sellerOf(req)).find((s) => s.id === req.params.id);
+  if (!schedule) return res.status(404).json({ error: "That recurring invoice no longer exists." });
+  res.json({ draft: scheduleDraft(schedule), forDate: schedule.nextDate });
+});
+
+// 5e) Daily approval queue: the agent prepares today's reminders, plan offers and recurring
+// invoices; the seller approves or skips each one (approval uses the endpoints above).
+const aiForQueue = { draftReminder, proposePaymentPlan };
+const queueBuilds = new Map();
+async function prepareQueue(seller) {
+  if (!queueBuilds.has(seller)) {
+    const job = (async () => {
+      const rows = await allRows();
+      const queue = await buildQueue({ seller, rows, recurringDue: dueSchedules(seller), ai: aiForQueue });
+      logEvent("agent", `Today's approval queue is ready: ${queue.items.length} item${queue.items.length === 1 ? "" : "s"} to review${queue.skipped.length ? `, ${queue.skipped.length} could not be drafted` : ""}`);
+      return queue;
+    })().finally(() => queueBuilds.delete(seller));
+    queueBuilds.set(seller, job);
+  }
+  return queueBuilds.get(seller);
+}
+app.get("/api/queue", (req, res) => res.json({ queue: getQueue(sellerOf(req)), building: queueBuilds.has(sellerOf(req)) }));
+app.post("/api/queue/build", aiLimit, async (req, res) => {
+  const existing = getQueue(sellerOf(req));
+  if (existing && req.body?.rebuild !== true) return res.json({ queue: existing });
+  res.json({ queue: await prepareQueue(sellerOf(req)) });
+});
+app.post("/api/queue/:itemId", writeLimit, async (req, res) => {
+  const item = await markItem(sellerOf(req), req.params.itemId, req.body?.status, req.body?.result);
+  if (item.status === "skipped") logEvent("agent", `Seller skipped today's ${item.kind} for ${item.client}`, { invoiceId: item.invoiceId });
+  res.json({ item });
+});
+// Prepare the shared seller's queue once a day without anyone opening the page (needs live AI;
+// demo mode builds on first visit instead). Checked hourly; a day's queue is built only once.
+if (config.ai.live) {
+  const daily = () => { if (!getQueue("default")) prepareQueue("default").catch((err) => console.warn("Daily queue failed:", err.message)); };
+  setTimeout(daily, 60_000).unref();
+  setInterval(daily, 3600_000).unref();
+}
+
+// 5g) Connect a seller's own PayPal account (partner onboarding). Without it, the shared demo seller.
+const publicBase = (req) => process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+app.post("/api/account/connect", writeLimit, async (req, res) => res.json({ url: await startOnboarding(paypal, publicBase(req)) }));
+app.get("/api/account/return", async (req, res) => {
+  try {
+    const record = await finishOnboarding(paypal, String(req.query.tracking || ""));
+    res.setHeader("Set-Cookie", sessionCookie(record.merchantId));
+    runAsSeller({ id: `pp:${record.merchantId}`, ...record }, () => logEvent("agent", `PayPal account ${record.email || record.merchantId} connected`));
+    res.redirect("/?connected=1");
+  } catch (err) {
+    res.redirect(`/?connect_error=${encodeURIComponent(err.message.slice(0, 200))}`);
+  }
+});
+app.post("/api/account/name", writeLimit, async (req, res) => {
+  if (!req.seller) return res.status(400).json({ error: "Connect a PayPal account first." });
+  res.json({ seller: await renameSeller(req.seller.merchantId, req.body?.name) });
+});
+app.post("/api/account/disconnect", (req, res) => {
+  res.setHeader("Set-Cookie", clearCookie());
+  res.json({ ok: true });
+});
+
+// 5f) Telegram bot: forward a client chat to the bot, get the draft, approve with one tap.
+const bot = createBot({
+  extract: ({ text, images, seller }) => runAsSeller(contextFor(seller), () => draftFromConversation({ text, images, seller, via: " (Telegram)" })),
+  transcribe: transcribeAudio,
+  voice: !config.ai.live || audioSupported(),
+  createInvoice: (draft, operationId, seller) => runAsSeller(contextFor(seller), () => createAndSendInvoice(draft, operationId)),
+  sellerName: (seller) => sellerRecord(seller)?.name || config.business.name,
+});
+app.get("/api/telegram", (req, res) => res.json({
+  enabled: telegram.enabled, username: telegram.username, mode: telegram.mode, chats: linkedChats(sellerOf(req)),
+}));
+app.post("/api/telegram/link", writeLimit, async (req, res) => {
+  if (!telegram.enabled) return res.status(503).json({ error: "The Telegram bot isn't configured on this server (TELEGRAM_BOT_TOKEN)." });
+  res.json(await createLinkCode(sellerOf(req)));
+});
+app.delete("/api/telegram/chats/:chatId", writeLimit, async (req, res) => {
+  await unlinkChat(sellerOf(req), req.params.chatId);
+  res.json({ ok: true });
+});
+app.post("/api/telegram/webhook", (req, res) => {
+  if (!telegram.enabled || !verifySecret(req.get("X-Telegram-Bot-Api-Secret-Token"))) return res.status(401).end();
+  res.json({ ok: true }); // acknowledge at once; Telegram retries slow webhooks
+  bot.handleUpdate(req.body || {}).catch((err) => console.warn("Telegram update failed:", err.message));
+});
+
 // 6) Copilot: questions about receivables, answered from live PayPal data
 app.post("/api/copilot", aiLimit, async (req, res) => {
   const question = String(req.body?.question || "").trim().slice(0, 500);
@@ -400,6 +569,9 @@ app.listen(config.port, () => {
   const vision = config.ai.visionModel ? ` (screenshots: ${config.ai.visionModel})` : "";
   console.log(`  AI:     ${config.ai.live ? `${config.ai.name} · ${config.ai.model}${vision}` : "demo mode (canned responses)"}`);
   keepAwake();
+  bot.start(process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || "")
+    .then(() => telegram.enabled && console.log(`  Telegram: @${telegram.username} (${telegram.mode})`))
+    .catch((err) => console.warn("Telegram bot did not start:", err.message));
 });
 
 // Render's free plan sleeps after 15 minutes without inbound traffic, and GitHub's scheduled

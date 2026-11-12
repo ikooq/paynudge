@@ -234,7 +234,9 @@ export function toRow(inv, today = todayISO()) {
   const daysUntilDue = isOpen && dueDate ? daysBetween(today, dueDate) : null;
   const memo = inv.detail?.memo || "";
   const lang = /Conversation language:\s*(.+)/.exec(memo)?.[1]?.trim() || "English";
-  const plan = isOpen ? parsePlan(memo) : null;
+  const anyPlan = parsePlan(memo);
+  const plan = isOpen ? anyPlan : null;
+  const paidDates = (inv.payments?.transactions || []).map((t) => String(t.payment_date || "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
   const progress = plan ? planProgress(plan, paid, today) : null;
   // A client keeping to an agreed plan is not overdue; a missed installment is late from its own date.
   if (plan?.status === "accepted" && progress?.next) daysOverdue = Math.max(0, daysBetween(progress.next.due_date, today));
@@ -261,6 +263,9 @@ export function toRow(inv, today = todayISO()) {
     memo: memo.replace(/^PayNudge memo:\s*/, "").split("\n")[0],
     language: lang,
     plan: plan ? { ...plan, progress } : null,
+    hadPlan: Boolean(anyPlan),
+    paidAt: PAID_STATUSES.has(status) || due === 0 ? paidDates.at(-1) || "" : "",
+    firstPaymentAt: paidDates[0] || "",
     // PayPal's invoice list omits `configuration`; only the single-invoice call returns it. null = unknown.
     partialAllowed: inv.configuration ? Boolean(inv.configuration.partial_payment?.allow_partial_payment) : null,
     nextAction: nextAction(status, daysOverdue, daysUntilDue, plan?.status === "accepted" ? progress : null),

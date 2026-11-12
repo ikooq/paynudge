@@ -1,13 +1,15 @@
 // In-memory agent activity log, plus payment detection between dashboard refreshes.
 // PayPal stays the source of truth; this only remembers what PayNudge did and noticed.
+// Entries are tagged with the seller they belong to, so connected sellers never see each other's.
+import { currentSeller } from "./context.js";
 
-const MAX = 60;
+const MAX = 200;
 const events = [];
-let lastStatuses = null; // id -> { paid, status }
+const lastStatusesBySeller = new Map(); // seller -> Map(id -> { paid, status })
 
 // kind: "ai" | "paypal" | "payment" | "agent"
 export function logEvent(kind, text, meta = {}) {
-  events.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, at: new Date().toISOString(), kind, text, ...meta });
+  events.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, at: new Date().toISOString(), kind, text, ...meta, seller: currentSeller().id });
   if (events.length > MAX) events.length = MAX;
 }
 
@@ -15,6 +17,8 @@ const PAID = new Set(["PAID", "MARKED_AS_PAID", "PAID_EXTERNAL"]);
 
 // Compares the new rows with the previous refresh and logs payments that just happened.
 export function detectPayments(rows) {
+  const seller = currentSeller().id;
+  const lastStatuses = lastStatusesBySeller.get(seller);
   const current = new Map(rows.map((r) => [r.id, { paid: r.paid, status: r.status }]));
   if (lastStatuses) {
     for (const r of rows) {
@@ -28,7 +32,7 @@ export function detectPayments(rows) {
       }
     }
   }
-  lastStatuses = current;
+  lastStatusesBySeller.set(seller, current);
 }
 
 // Older history, derived from PayPal itself, so the feed is never empty after a restart.
@@ -55,7 +59,9 @@ export function broadcast(message) {
 }
 
 export function listActivity(rows = []) {
-  const sentLogged = new Set(events.filter((e) => e.sent).map((e) => e.invoiceId));
+  const seller = currentSeller().id;
+  const mine = events.filter((e) => e.seller === seller);
+  const sentLogged = new Set(mine.filter((e) => e.sent).map((e) => e.invoiceId));
   const old = derived(rows).filter((e) => !sentLogged.has(e.invoiceId));
-  return [...events, ...old].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 30);
+  return [...mine, ...old].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 30);
 }
