@@ -39,7 +39,8 @@ export async function buildQueue({ seller, rows, recurringDue = [], ai, now = Da
     try {
       if (row.daysOverdue > 21 && !row.plan) {
         const raw = await ai.proposePaymentPlan({ row });
-        const installments = validatePlan(raw.installments, row.due, row.currency);
+        // Check the plan against the day this queue is built for, not the wall clock.
+        const installments = validatePlan(raw.installments, row.due, row.currency, date);
         items.push({ ...base, kind: "plan", subject: raw.subject, note: raw.note, installments, why: raw.rationale || "" });
         continue;
       }
